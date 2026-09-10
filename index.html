@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LEOBOG AMG65 Studio - macOS Edition</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <!-- Ambient RGB Glow behind stage -->
+  <div class="ambient-glow" id="ambientGlow"></div>
+
+  <!-- App Header -->
+  <header class="app-header">
+    <div class="brand-section">
+      <div class="brand-badge">LEOBOG</div>
+      <div class="brand-title">
+        AMG65 Studio <span>macOS</span>
+      </div>
+    </div>
+
+    <div class="header-status-area">
+      <!-- Battery Gauge -->
+      <div class="battery-pill" id="batteryPill" title="Dung lượng pin">
+        <div class="battery-icon">
+          <div class="battery-fill" id="batteryFill"></div>
+        </div>
+        <span id="batteryText">--%</span>
+      </div>
+
+      <!-- Connection Status Indicator -->
+      <div class="status-pill">
+        <div class="status-dot" id="statusDot"></div>
+        <span id="statusText">Chưa kết nối</span>
+      </div>
+
+      <!-- Quick Action: Sync Mac Clock -->
+      <button class="btn btn-sync" id="btnQuickSync" title="Đồng bộ ngay thời gian hiện tại của macOS vào màn hình LCD của phím">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="10"></circle>
+          <polyline points="12 6 12 12 16 14"></polyline>
+        </svg>
+        Đồng Bộ Giờ Mac
+      </button>
+
+      <!-- Connect / Disconnect Button -->
+      <button class="btn btn-primary" id="btnConnect">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path>
+          <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path>
+        </svg>
+        Kết Nối Bàn Phím
+      </button>
+    </div>
+  </header>
+
+  <!-- Main Stage -->
+  <main class="app-main">
+    <!-- Interactive Keyboard Visualizer Stage -->
+    <section class="stage-card">
+      <div class="stage-header">
+        <div class="layer-toggle">
+          <button class="layer-btn active" id="layer0Btn" data-layer="0">Tầng 0 (Mặc định)</button>
+          <button class="layer-btn" id="layer1Btn" data-layer="1">Tầng 1 (Fn Layer)</button>
+        </div>
+
+        <div style="font-size: 13px; color: var(--text-muted);">
+          Nhấp vào bất kỳ phím nào để đổi tính năng (Remap)
+        </div>
+      </div>
+
+      <!-- 65% Keyboard Canvas Viewport -->
+      <div class="keyboard-viewport" id="keyboardViewport">
+        <!-- Logo Badge -->
+        <div class="keyboard-logo-badge">LEOBOG AMG65</div>
+
+        <!-- 1.14" LCD Screen Widget -->
+        <div class="keyboard-lcd-screen" id="lcdScreenWidget">
+          <div class="lcd-top-bar">
+            <span>AMG65</span>
+            <span id="lcdBatteryText">100%</span>
+          </div>
+          <div class="lcd-clock" id="lcdClockText">12:00</div>
+          <div class="lcd-bottom-bar">
+            <span id="lcdDateText">2026/09/10</span>
+            <span>MAC</span>
+          </div>
+        </div>
+
+        <!-- Rotary Volume Knob -->
+        <div class="keyboard-knob-container">
+          <div class="knob-dial" id="knobDial" title="Núm xoay âm lượng (Xoay Trái: Vol-, Xoay Phải: Vol+)"></div>
+          <div class="knob-label">Vol Knob</div>
+        </div>
+
+        <!-- Dynamic Keycaps Layer -->
+        <div class="keys-container" id="keysContainer"></div>
+      </div>
+    </section>
+
+    <!-- Navigation Tabs -->
+    <nav class="tab-navigation">
+      <button class="tab-btn active" data-tab="tab-remap">⌨️ Phím Bấm (Key Remap)</button>
+      <button class="tab-btn" data-tab="tab-lighting">🌈 Đèn LED RGB (Lighting Studio)</button>
+      <button class="tab-btn" data-tab="tab-screen">🖥️ Màn Hình TFT (Screen & Clock)</button>
+      <button class="tab-btn" data-tab="tab-device">ℹ️ Thông Tin Thiết Bị (Device Info)</button>
+    </nav>
+
+    <!-- Tab 1: Key Remap Info -->
+    <div class="tab-pane active" id="tab-remap">
+      <div class="controls-grid">
+        <div class="control-card">
+          <div class="card-title">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="2" y="4" width="20" height="16" rx="2"></rect>
+              <path d="M6 8h.01M10 8h.01M14 8h.01M18 8h.01M6 12h.01M10 12h.01M14 12h.01M18 12h.01M8 16h8"></path>
+            </svg>
+            Hướng dẫn Gán Phím (Key Remap)
+          </div>
+          <p style="font-size: 13px; color: var(--text-secondary); line-height: 1.6;">
+            1. Bấm trực tiếp vào phím bạn muốn đổi trên bàn phím ảo phía trên.<br>
+            2. Một bảng danh sách các phím thay thế sẽ hiện ra (Chữ cái, F1-F12, Đa phương tiện, Âm lượng...).<br>
+            3. Chọn phím mới, ứng dụng sẽ gửi lệnh lưu trực tiếp vào bộ nhớ Flash của bàn phím.
+          </p>
+          <div style="display: flex; gap: 12px; margin-top: auto;">
+            <button class="btn btn-secondary" id="btnReloadConfig">Nạp Lại Cấu Hình Gốc</button>
+            <button class="btn btn-primary" id="btnSaveConfig">Lưu Vào Bàn Phím</button>
+          </div>
+        </div>
+
+        <div class="control-card">
+          <div class="card-title">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="3"></circle>
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+            </svg>
+            Tùy Chỉnh Núm Xoay (Rotary Knob)
+          </div>
+          <p style="font-size: 13px; color: var(--text-secondary);">
+            Núm xoay âm lượng ở góc trên bên phải có thể gán lại để cuộn trang, tua nhạc hoặc zoom màn hình.
+          </p>
+          <div style="display: flex; gap: 10px; margin-top: 10px;">
+            <button class="btn btn-secondary" id="btnRemapKnobCW" style="flex: 1;">Xoay Phải (Vol+)</button>
+            <button class="btn btn-secondary" id="btnRemapKnobCCW" style="flex: 1;">Xoay Trái (Vol-)</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tab 2: RGB Lighting Studio -->
+    <div class="tab-pane" id="tab-lighting">
+      <div class="controls-grid">
+        <!-- Light Mode Selector -->
+        <div class="control-card">
+          <div class="card-title">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="5"></circle>
+              <line x1="12" y1="1" x2="12" y2="3"></line>
+              <line x1="12" y1="21" x2="12" y2="23"></line>
+              <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+              <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+              <line x1="1" y1="12" x2="3" y2="12"></line>
+              <line x1="21" y1="12" x2="23" y2="12"></line>
+              <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+              <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+            </svg>
+            Chế Độ Hiệu Ứng LED
+          </div>
+          <select class="mode-select" id="lightModeSelect"></select>
+
+          <!-- Brightness Slider -->
+          <div class="slider-group">
+            <div class="slider-label">
+              <span>Độ sáng (Brightness)</span>
+              <span id="brightnessVal">4/4</span>
+            </div>
+            <input type="range" id="brightnessRange" min="0" max="4" value="4">
+          </div>
+
+          <!-- Speed Slider -->
+          <div class="slider-group">
+            <div class="slider-label">
+              <span>Tốc độ hiệu ứng (Speed)</span>
+              <span id="speedVal">3/4</span>
+            </div>
+            <input type="range" id="speedRange" min="0" max="4" value="3">
+          </div>
+        </div>
+
+        <!-- Color Palette -->
+        <div class="control-card">
+          <div class="card-title">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path>
+            </svg>
+            Màu Sắc Ánh Sáng
+          </div>
+
+          <div style="display: flex; align-items: center; justify-content: space-between;">
+            <span style="font-size: 13px; color: var(--text-secondary);">Chế độ cầu vồng RGB đa sắc:</span>
+            <input type="checkbox" id="chkRainbow" checked style="width: 18px; height: 18px; cursor: pointer;">
+          </div>
+
+          <div id="singleColorControls" style="display: none; flex-direction: column; gap: 14px;">
+            <div style="display: flex; align-items: center; gap: 12px;">
+              <input type="color" id="rgbColorPicker" value="#00f0ff" style="width: 44px; height: 44px; border: none; border-radius: 8px; cursor: pointer; background: transparent;">
+              <div>
+                <div style="font-size: 13px; font-weight: 600;" id="hexColorVal">#00F0FF</div>
+                <div style="font-size: 12px; color: var(--text-muted);">Bấm để chọn màu tùy ý</div>
+              </div>
+            </div>
+
+            <div class="slider-label">Bảng màu gợi ý nhanh:</div>
+            <div class="color-palette">
+              <div class="color-swatch active" style="background: #00f0ff; color: #00f0ff;" data-color="#00f0ff"></div>
+              <div class="color-swatch" style="background: #ff007f; color: #ff007f;" data-color="#ff007f"></div>
+              <div class="color-swatch" style="background: #a855f7; color: #a855f7;" data-color="#a855f7"></div>
+              <div class="color-swatch" style="background: #10b981; color: #10b981;" data-color="#10b981"></div>
+              <div class="color-swatch" style="background: #fbbf24; color: #fbbf24;" data-color="#fbbf24"></div>
+              <div class="color-swatch" style="background: #3b82f6; color: #3b82f6;" data-color="#3b82f6"></div>
+              <div class="color-swatch" style="background: #ffffff; color: #ffffff;" data-color="#ffffff"></div>
+            </div>
+          </div>
+
+          <button class="btn btn-primary" id="btnApplyLighting" style="margin-top: auto;">
+            Áp Dụng Hiệu Ứng LED
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tab 3: Screen & Clock -->
+    <div class="tab-pane" id="tab-screen">
+      <div class="controls-grid">
+        <!-- Time Sync Card -->
+        <div class="control-card">
+          <div class="card-title">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10"></circle>
+              <polyline points="12 6 12 12 16 14"></polyline>
+            </svg>
+            Đồng Bộ Giờ Màn Hình LCD 1.14"
+          </div>
+          <p style="font-size: 13px; color: var(--text-secondary); line-height: 1.6;">
+            Do không có driver Mac chính thức từ nhà sản xuất, đồng hồ trên màn hình phụ của bàn phím thường bị sai hoặc đứng giờ khi dùng với máy Mac.<br>
+            Tính năng này sẽ gửi lệnh đồng bộ trực tiếp giờ và ngày tháng hiện tại của macOS vào phím.
+          </p>
+
+          <div style="background: rgba(0, 0, 0, 0.4); padding: 14px; border-radius: var(--radius-sm); border: 1px solid var(--surface-glass-border); font-family: var(--font-mono); font-size: 14px; color: var(--accent-cyan);">
+            Giờ Mac hiện tại: <span id="currentMacTimeText">--:--:--</span>
+          </div>
+
+          <button class="btn btn-sync" id="btnSyncTimeBig">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"></path>
+            </svg>
+            Cập Nhật Giờ Vào Bàn Phím Ngay
+          </button>
+        </div>
+
+        <!-- GIF Animation & TFT Info -->
+        <div class="control-card">
+          <div class="card-title">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+              <circle cx="8.5" cy="8.5" r="1.5"></circle>
+              <polyline points="21 15 16 10 5 21"></polyline>
+            </svg>
+            Màn Hình Động LCD (TFT 1.14")
+          </div>
+          <p style="font-size: 13px; color: var(--text-secondary);">
+            Màn hình hỗ trợ ảnh GIF động chuẩn 135x240 pixel hoặc ảnh tĩnh.
+          </p>
+          <div style="display: flex; gap: 12px; align-items: center;">
+            <input type="file" id="tftFileInput" accept="image/gif,image/png,image/jpeg" style="display: none;">
+            <button class="btn btn-secondary" id="btnSelectGif">Chọn Tệp Ảnh / GIF</button>
+            <span id="selectedFileName" style="font-size: 12px; color: var(--text-muted);">Chưa chọn tệp</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tab 4: Device Info -->
+    <div class="tab-pane" id="tab-device">
+      <div class="controls-grid">
+        <div class="control-card">
+          <div class="card-title">Thông Tin Kết Nối USB</div>
+          <table style="width: 100%; font-size: 13px; border-collapse: collapse; line-height: 2;">
+            <tr><td style="color: var(--text-muted);">Thiết bị:</td><td style="font-weight: 600;">LEOBOG AMG65 Mechanical Keyboard</td></tr>
+            <tr><td style="color: var(--text-muted);">Nhà sản xuất:</td><td>SONiX / Dongguan Suoai Electronics</td></tr>
+            <tr><td style="color: var(--text-muted);">Vendor ID (VID):</td><td style="font-family: var(--font-mono); color: var(--accent-cyan);">0x0C45 (3141)</td></tr>
+            <tr><td style="color: var(--text-muted);">Product ID (PID):</td><td style="font-family: var(--font-mono); color: var(--accent-cyan);">0x800A (32778)</td></tr>
+            <tr><td style="color: var(--text-muted);">Usage Page:</td><td style="font-family: var(--font-mono);">0xFF68 (Vendor Defined)</td></tr>
+            <tr><td style="color: var(--text-muted);">Trạng thái sạc:</td><td id="infoChargingStatus">Đang cắm dây USB (100%)</td></tr>
+          </table>
+        </div>
+
+        <div class="control-card">
+          <div class="card-title">Chế Độ Bàn Phím (OS Mode)</div>
+          <p style="font-size: 13px; color: var(--text-secondary); line-height: 1.6;">
+            Bàn phím LEOBOG AMG65 có sẵn cần gạt hoặc menu màn hình chuyển đổi giữa hệ điều hành <strong>macOS</strong> và <strong>Windows</strong>.<br>
+            Khi dùng trên Mac, bạn có thể nhấn <strong>Fn + Win</strong> để khóa/mở nút Windows hoặc chuyển nút Win sang nút Command ⌘.
+          </p>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- Remap Key Modal Drawer -->
+  <div class="remap-modal" id="remapModal">
+    <div class="remap-card">
+      <div class="remap-header">
+        <div class="remap-title-group">
+          <h3 id="remapKeyTitle">Đổi phím: Esc</h3>
+          <p id="remapKeySubtitle">Chọn chức năng mới cho phím này</p>
+        </div>
+        <button class="modal-close-btn" id="closeRemapModal">&times;</button>
+      </div>
+
+      <div class="remap-body" id="remapCategoriesContainer"></div>
+    </div>
+  </div>
+
+  <!-- Toast Log -->
+  <div class="log-toast" id="logToast"></div>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
