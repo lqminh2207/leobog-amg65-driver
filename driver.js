@@ -140,6 +140,25 @@ export class LeobogDriver {
   }
 
   // Remap key
+    async uploadLcdImage(base64Data) {
+    this.log("Đang xử lý và truyền dữ liệu tới bộ nhớ Flash của màn hình...", "info");
+    if (this.useNativeBackend) {
+      const res = await fetch("/api/upload-lcd", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ image: base64Data })
+      });
+      const data = await res.json();
+      if (data.success) {
+        this.log(`Đã nạp thành công ${data.frames} khung hình (${data.blocks} blocks) vào màn hình LCD!`, "success");
+        return data;
+      } else {
+        throw new Error(data.error || "Không thể nạp ảnh vào màn hình");
+      }
+    }
+    throw new Error("Chưa kết nối tới bàn phím");
+  }
+
   async remapKey(keyIndex, newKeyCode) {
     this.log(`Đang gán phím (Index ${keyIndex} -> 0x${newKeyCode.toString(16)})...`, "info");
     if (this.useNativeBackend) {

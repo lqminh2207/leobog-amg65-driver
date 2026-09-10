@@ -374,11 +374,94 @@ class AppUI {
       document.getElementById("tftFileInput").click();
     });
 
-    document.getElementById("tftFileInput").addEventListener("change", (e) => {
+    const tftFileInput = document.getElementById("tftFileInput");
+    const selectedFileName = document.getElementById("selectedFileName");
+    const lcdPreviewImg = document.getElementById("lcdPreviewImg");
+    const lcdPlaceholder = document.getElementById("lcdPlaceholder");
+    const lcdFileStats = document.getElementById("lcdFileStats");
+    const statDimensions = document.getElementById("statDimensions");
+    const statType = document.getElementById("statType");
+    const statSize = document.getElementById("statSize");
+    const btnUploadLcd = document.getElementById("btnUploadLcd");
+    const lcdUploadProgress = document.getElementById("lcdUploadProgress");
+    const lcdProgressBar = document.getElementById("lcdProgressBar");
+    const lcdProgressPercent = document.getElementById("lcdProgressPercent");
+    const lcdProgressText = document.getElementById("lcdProgressText");
+
+    this.currentLcdImageDataUrl = null;
+
+    tftFileInput.addEventListener("change", (e) => {
       const file = e.target.files[0];
-      if (file) {
-        document.getElementById("selectedFileName").textContent = file.name;
-        this.showToast(`Đã chọn tệp: ${file.name}. Màn hình hỗ trợ chuẩn 135x240 pixel.`, "success");
+      if (!file) return;
+
+      selectedFileName.textContent = file.name;
+      const sizeKb = (file.size / 1024).toFixed(1);
+      const isGif = file.type === "image/gif" || file.name.toLowerCase().endsWith(".gif");
+
+      const reader = new FileReader();
+      reader.onload = (loadEvt) => {
+        this.currentLcdImageDataUrl = loadEvt.target.result;
+
+        // Display preview
+        lcdPreviewImg.src = this.currentLcdImageDataUrl;
+        lcdPreviewImg.style.display = "block";
+        lcdPlaceholder.style.display = "none";
+
+        // Read natural image dimensions
+        const testImg = new Image();
+        testImg.onload = () => {
+          statDimensions.textContent = `Gốc: ${testImg.naturalWidth}x${testImg.naturalHeight} px`;
+          statType.textContent = isGif ? "GIF động" : "Ảnh tĩnh (PNG/JPG)";
+          statSize.textContent = `${sizeKb} KB`;
+          lcdFileStats.style.display = "flex";
+          btnUploadLcd.disabled = false;
+          this.showToast(`Đã tải ảnh: ${file.name} (${testImg.naturalWidth}x${testImg.naturalHeight}). Sẵn sàng nạp!`, "success");
+        };
+        testImg.src = this.currentLcdImageDataUrl;
+      };
+      reader.readAsDataURL(file);
+    });
+
+    btnUploadLcd.addEventListener("click", async () => {
+      if (!this.currentLcdImageDataUrl) return;
+
+      btnUploadLcd.disabled = true;
+      lcdUploadProgress.style.display = "flex";
+      lcdProgressBar.style.width = "10%";
+      lcdProgressPercent.textContent = "10%";
+      lcdProgressText.textContent = "Đang chuyển đổi mã màu RGB565...";
+
+      try {
+        // Animate progress simulation while upload is happening
+        let progress = 15;
+        const interval = setInterval(() => {
+          if (progress < 85) {
+            progress += 5;
+            lcdProgressBar.style.width = `${progress}%`;
+            lcdProgressPercent.textContent = `${progress}%`;
+            if (progress > 30) {
+              lcdProgressText.textContent = "Đang ghi dữ liệu vào bộ nhớ Flash của màn hình...";
+            }
+          }
+        }, 150);
+
+        const res = await this.driver.uploadLcdImage(this.currentLcdImageDataUrl);
+        clearInterval(interval);
+
+        lcdProgressBar.style.width = "100%";
+        lcdProgressPercent.textContent = "100%";
+        lcdProgressText.textContent = `Hoàn tất! Đã nạp ${res.frames} khung hình vào bàn phím.`;
+
+        this.showToast(`Đã nạp thành công ${res.frames} khung hình lên màn hình bàn phím!`, "success");
+
+        setTimeout(() => {
+          btnUploadLcd.disabled = false;
+        }, 2000);
+      } catch (err) {
+        lcdProgressBar.style.width = "0%";
+        lcdProgressText.textContent = "Lỗi khi nạp: " + err.message;
+        this.showToast("Lỗi: " + err.message, "error");
+        btnUploadLcd.disabled = false;
       }
     });
 

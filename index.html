@@ -259,24 +259,87 @@
         </div>
 
         <!-- GIF Animation & TFT Info -->
-        <div class="control-card">
+        <div class="control-card" style="grid-column: span 2;">
           <div class="card-title">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
               <circle cx="8.5" cy="8.5" r="1.5"></circle>
               <polyline points="21 15 16 10 5 21"></polyline>
             </svg>
-            Màn Hình Động LCD (TFT 1.14")
+            Tải Ảnh / GIF Động Lên Màn Hình LCD (TFT 1.14")
           </div>
-          <p style="font-size: 13px; color: var(--text-secondary);">
-            Màn hình hỗ trợ ảnh GIF động chuẩn 135x240 pixel hoặc ảnh tĩnh.
+          <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 16px;">
+            Màn hình hỗ trợ hiển thị ảnh tĩnh (PNG, JPG) hoặc ảnh động (GIF) chuẩn 240x135 pixel. Tự động căn chỉnh và chuyển đổi mã màu RGB565 tương thích 100% phần cứng.
           </p>
-          <div style="display: flex; gap: 12px; align-items: center;">
-            <input type="file" id="tftFileInput" accept="image/gif,image/png,image/jpeg" style="display: none;">
-            <button class="btn btn-secondary" id="btnSelectGif">Chọn Tệp Ảnh / GIF</button>
-            <span id="selectedFileName" style="font-size: 12px; color: var(--text-muted);">Chưa chọn tệp</span>
+
+          <div style="display: flex; gap: 24px; align-items: flex-start; flex-wrap: wrap;">
+            <!-- Live Preview Screen -->
+            <div style="display: flex; flex-direction: column; gap: 8px;">
+              <div style="font-size: 12px; font-weight: 600; color: var(--text-secondary);">Xem trước trên màn hình (240x135):</div>
+              <div id="lcdPreviewContainer" style="width: 240px; height: 135px; background: #000; border-radius: 8px; border: 2px solid rgba(255,255,255,0.15); box-shadow: 0 4px 20px rgba(0,0,0,0.5), inset 0 0 10px rgba(0,255,200,0.1); position: relative; overflow: hidden; display: flex; align-items: center; justify-content: center;">
+                <img id="lcdPreviewImg" src="" style="width: 100%; height: 100%; object-fit: cover; display: none;" />
+                <div id="lcdPlaceholder" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; color: var(--text-muted); font-size: 11px;">
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                    <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                    <circle cx="8.5" cy="8.5" r="1.5"></circle>
+                    <polyline points="21 15 16 10 5 21"></polyline>
+                  </svg>
+                  <span>Chưa có ảnh nào được chọn</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Upload Controls & Stats -->
+            <div style="flex: 1; min-width: 260px; display: flex; flex-direction: column; gap: 14px;">
+              <div style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">
+                <input type="file" id="tftFileInput" accept="image/gif,image/png,image/jpeg,image/webp" style="display: none;">
+                <button class="btn btn-secondary" id="btnSelectGif">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 6px;">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                    <polyline points="17 8 12 3 7 8"></polyline>
+                    <line x1="12" y1="3" x2="12" y2="15"></line>
+                  </svg>
+                  Chọn Tệp Ảnh / GIF
+                </button>
+                <span id="selectedFileName" style="font-size: 12px; color: var(--text-secondary); font-weight: 500;">Chưa chọn tệp</span>
+              </div>
+
+              <!-- Info badges -->
+              <div id="lcdFileStats" style="display: none; gap: 8px; flex-wrap: wrap;">
+                <span style="font-size: 11px; padding: 3px 8px; border-radius: 4px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); color: var(--text-secondary);" id="statDimensions">Kích thước: -</span>
+                <span style="font-size: 11px; padding: 3px 8px; border-radius: 4px; background: rgba(0,255,180,0.1); border: 1px solid rgba(0,255,180,0.2); color: #00ffb4;" id="statType">Loại: -</span>
+                <span style="font-size: 11px; padding: 3px 8px; border-radius: 4px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); color: var(--text-secondary);" id="statSize">Dung lượng: -</span>
+              </div>
+
+              <!-- Upload Button -->
+              <button class="btn btn-primary" id="btnUploadLcd" disabled style="align-self: flex-start;">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 6px;">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                  <polyline points="17 8 12 3 7 8"></polyline>
+                  <line x1="12" y1="3" x2="12" y2="15"></line>
+                </svg>
+                Nạp Vào Màn Hình Bàn Phím
+              </button>
+
+              <!-- Upload Progress -->
+              <div id="lcdUploadProgress" style="display: none; flex-direction: column; gap: 6px;">
+                <div style="display: flex; justify-content: space-between; font-size: 12px;">
+                  <span id="lcdProgressText" style="color: var(--text-secondary);">Đang nạp vào bộ nhớ Flash...</span>
+                  <span id="lcdProgressPercent" style="color: var(--primary); font-weight: 600;">0%</span>
+                </div>
+                <div style="width: 100%; height: 6px; background: rgba(255,255,255,0.08); border-radius: 3px; overflow: hidden;">
+                  <div id="lcdProgressBar" style="width: 0%; height: 100%; background: linear-gradient(90deg, #00d2ff, #00f2fe); border-radius: 3px; transition: width 0.3s ease;"></div>
+                </div>
+              </div>
+
+              <!-- Helpful Note -->
+              <div style="padding: 10px 14px; border-radius: 8px; background: rgba(0, 150, 255, 0.08); border: 1px solid rgba(0, 150, 255, 0.2); font-size: 12px; line-height: 1.5; color: #a0cfff;">
+                <strong>💡 Cách hiển thị ảnh trên bàn phím:</strong>
+                Sau khi nạp xong, xoay <strong>Núm xoay (Knob)</strong> hoặc nhấn tổ hợp <strong>Fn + Núm xoay</strong> để chuyển màn hình từ trang Đồng hồ sang trang Ảnh / GIF động!
+              </div>
+            </div>
           </div>
-        </div>
+        </div></div>
       </div>
     </div>
 

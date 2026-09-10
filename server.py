@@ -6,11 +6,19 @@ import os
 import sys
 import datetime
 import time
+import io
+import base64
 
 try:
     import hid
 except ImportError:
     print("hidapi chua duoc cai dat. Vui long chay: pip install hidapi")
+    sys.exit(1)
+
+try:
+    from PIL import Image, ImageSequence, ImageOps
+except ImportError:
+    print("Pillow chua duoc cai dat. Vui long chay: pip install Pillow")
     sys.exit(1)
 
 PORT = 8080
@@ -30,7 +38,6 @@ class KeyboardController:
                 # Preferred interface: interface_number == 2 or usage_page == 0xFF68
                 if d.get("usage_page") == 0xFF68 or d.get("interface_number") == 2:
                     return d["path"]
-        # Fallback to any interface for this VID/PID
         for d in devices:
             if d.get("vendor_id") == VENDOR_ID and d.get("product_id") == PRODUCT_ID:
                 return d["path"]
@@ -106,19 +113,16 @@ class KeyboardController:
             return {"success": False, "error": "Ban phim chua duoc cam"}
         
         m = int(mode) & 0xFF
-        # Handle off state: mode 19 is official Close Backlight
         if m == 0 and not is_rainbow and brightness == 0:
             m = 19
 
-        # Hardware brightness is 1..5 (5 is max)
         br = int(brightness)
         if 0 <= br <= 4:
             br = br + 1
         br = max(1, min(5, br))
         if m == 19:
-            br = 0  # backlight off
+            br = 0
 
-        # Hardware speed is 1..5 (3 is normal)
         sp = int(speed)
         if 0 <= sp <= 4:
             sp = sp + 1
@@ -139,7 +143,7 @@ class KeyboardController:
                 time.sleep(0.015)
                 return h.read(64, timeout_ms=100)
 
-            # Sequence 1: 0x13 Lighting Protocol (Primary wired MFC driver sequence - 0x43b3f0)
+            # Sequence 1: 0x13 Primary Lighting Protocol
             send_raw([0x04, 0x18])
             send_raw([0x04, 0x13, 0, 0, 0, 0, 0, 0, 1])
             p1 = [0] * 64
@@ -157,7 +161,7 @@ class KeyboardController:
             send_raw([0x04, 0x02])
             send_raw([0x04, 0xF0])
 
-            # Sequence 2: 0x17 Secondary Global/Layer Protocol (0x4454d0)
+            # Sequence 2: 0x17 Secondary Global Protocol
             send_raw([0x04, 0x18])
             send_raw([0x04, 0x17, m, 0, 0, 0, 0, 0, 1])
             p2 = [0] * 64
@@ -177,6 +181,92 @@ class KeyboardController:
             send_raw([0x04, 0xF0])
 
             return {"success": True, "mode": m, "brightness": br, "speed": sp}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+        finally:
+            try:
+                h.close()
+            except Exception:
+                pass
+
+    def upload_lcd_image(self, data_url):
+        path = self.find_device_path()
+        if not path:
+            return {"success": False, "error": "Ban phim chua duoc cam"}
+        
+        try:
+            if "," in data_url:
+                raw_data = base64.b64decode(data_url.split(",")[1])
+            else:
+                raw_data = base64.b64decode(data_url)
+            im = Image.open(io.BytesIO(raw_data))
+        except Exception as e:
+            return {"success": False, "error": f"Loi doc file anh: {str(e)}"}
+
+        frames_rgb565 = bytearray()
+        frame_count = 0
+        max_frames = 120
+
+        try:
+            for frame in ImageSequence.Iterator(im):
+                frame_count += 1
+                if frame_count > max_frames:
+                    break
+                f_rgb = frame.convert("RGB")
+                # Scale & crop to exact 240x135 screen resolution
+                f_resized = ImageOps.fit(f_rgb, (240, 135), method=Image.Resampling.LANCZOS)
+                
+                pixels = f_resized.load()
+                for y in range(135):
+                    for x in range(240):
+                        r, g, b = pixels[x, y]
+                        val = ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3)
+                        frames_rgb565.append(val & 0xFF)
+                        frames_rgb565.append((val >> 8) & 0xFF)
+        except Exception as e:
+            return {"success": False, "error": f"Loi chuyen doi RGB565: {str(e)}"}
+
+        block_size = 4096
+        total_blocks = (len(frames_rgb565) + block_size - 1) // block_size
+        padded = frames_rgb565 + b"\x00" * (total_blocks * block_size - len(frames_rgb565))
+
+        h = hid.device()
+        try:
+            h.open_path(path)
+
+            def send_cmd(pkt):
+                full = [0x00] + list(pkt) + [0x00] * (64 - len(pkt))
+                h.write(bytes(full[:65]))
+                time.sleep(0.015)
+                return h.read(64, timeout_ms=300)
+
+            # 1. Enter config mode
+            send_cmd([0x04, 0x18])
+
+            # 2. Header: 0x04 0x72
+            hdr = [0x04, 0x72, 0x01, 0, 0, 0, 0, 0, total_blocks & 0xFF, (total_blocks >> 8) & 0xFF]
+            send_cmd(hdr)
+
+            # 3. Stream 4096-byte blocks
+            for b in range(total_blocks):
+                chunk = padded[b * block_size : (b + 1) * block_size]
+                pkt = bytes([0x00]) + chunk
+                h.write(pkt)
+                if b == 0:
+                    time.sleep(0.5)  # Flash sector erase wait
+                else:
+                    time.sleep(0.015)
+                h.read(64, timeout_ms=30)
+
+            # 4. Commit to Flash
+            send_cmd([0x04, 0x02])
+
+            return {
+                "success": True,
+                "frames": frame_count,
+                "blocks": total_blocks,
+                "bytes": len(frames_rgb565)
+            }
         except Exception as e:
             return {"success": False, "error": str(e)}
         finally:
@@ -316,6 +406,20 @@ class AppHandler(http.server.SimpleHTTPRequestHandler):
             b = data.get("b", 0)
             is_rainbow = data.get("isRainbow", True)
             res = controller.set_lighting(mode, brightness, speed, r, g, b, is_rainbow)
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps(res).encode("utf-8"))
+            return
+        elif self.path == "/api/upload-lcd":
+            image_data = data.get("image", "")
+            if not image_data:
+                self.send_response(400)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({"success": False, "error": "Khong co du lieu anh"}).encode("utf-8"))
+                return
+            res = controller.upload_lcd_image(image_data)
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
