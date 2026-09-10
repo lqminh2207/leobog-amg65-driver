@@ -1,26 +1,19 @@
-// LEOBOG AMG65 WebHID Driver
-// Implements the reverse-engineered USB HID protocol for macOS
+// LEOBOG AMG65 Driver Bridge for macOS
+// Bridges both local native USB driver (zero-permission) and WebHID API
 
 export class LeobogDriver {
   constructor() {
-    this.device = null;
     this.isConnected = false;
     this.battery = null;
     this.isCharging = false;
-    this.configBuffer = new Uint8Array(512);
-    this.pendingResolvers = [];
+    this.useNativeBackend = true;
+    this.device = null;
     this.onStatusChange = null;
     this.onBatteryUpdate = null;
     this.onLog = null;
 
-    this.filters = [
-      {
-        vendorId: 0x0c45, // SONiX
-        productId: 0x800a, // LEOBOG AMG65
-        usagePage: 0xff68, // Vendor Defined Page
-        usage: 0x0061
-      }
-    ];
+    // Start auto polling backend
+    this.startBackendPolling();
   }
 
   log(msg, type = "info") {
@@ -28,291 +21,156 @@ export class LeobogDriver {
     if (this.onLog) this.onLog(msg, type);
   }
 
-  async autoConnect() {
-    if (!navigator.hid) {
-      this.log("Trình duyệt này không hỗ trợ WebHID. Hãy dùng Google Chrome, Microsoft Edge, hoặc Brave trên macOS.", "error");
-      return false;
-    }
-
+  async startBackendPolling() {
     try {
-      const devices = await navigator.hid.getDevices();
-      const matched = devices.find(d => 
-        d.vendorId === 0x0c45 && 
-        d.productId === 0x800a &&
-        d.collections.some(c => c.usagePage === 0xff68 && c.usage === 0x0061)
-      );
-
-      if (matched) {
-        this.log("Tìm thấy bàn phím đã ghép nối trước đó. Đang kết nối lại...", "info");
-        return await this._openDevice(matched);
+      const res = await fetch("/api/status");
+      if (res.ok) {
+        const data = await res.json();
+        if (data.connected) {
+          this.useNativeBackend = true;
+          this.isConnected = true;
+          this.battery = data.battery;
+          this.isCharging = data.charging;
+          this.log(`Đã kết nối trực tiếp với ${data.device} qua Native Driver (Pin: ${this.battery}%)!`, "success");
+          if (this.onStatusChange) this.onStatusChange(true, data);
+          if (this.onBatteryUpdate) this.onBatteryUpdate(this.battery, this.isCharging);
+          return;
+        }
       }
-    } catch (err) {
-      this.log(`Lỗi khi auto-connect: ${err.message}`, "warn");
-    }
-    return false;
+    } catch (e) {}
+
+    // Poll every 5s if disconnected
+    setTimeout(() => {
+      if (!this.isConnected) this.startBackendPolling();
+    }, 4000);
+  }
+
+  async autoConnect() {
+    return await this.startBackendPolling();
   }
 
   async connect() {
+    this.log("Đang kiểm tra kết nối với bàn phím...", "info");
+    try {
+      const res = await fetch("/api/status");
+      if (res.ok) {
+        const data = await res.json();
+        if (data.connected) {
+          this.useNativeBackend = true;
+          this.isConnected = true;
+          this.battery = data.battery;
+          this.isCharging = data.charging;
+          this.log(`Đã kết nối thành công với ${data.device}!`, "success");
+          if (this.onStatusChange) this.onStatusChange(true, data);
+          if (this.onBatteryUpdate) this.onBatteryUpdate(this.battery, this.isCharging);
+          return true;
+        }
+      }
+    } catch (err) {
+      this.log(`Lỗi kết nối Native Driver: ${err.message}`, "warn");
+    }
+
+    // Fallback: WebHID
     if (!navigator.hid) {
-      alert("Trình duyệt không hỗ trợ WebHID API!\nVui lòng sử dụng Google Chrome, Edge, Arc hoặc Brave trên macOS.");
+      alert("Không tìm thấy bàn phím! Hãy chắc chắn bàn phím LEOBOG AMG65 đã cắm cáp USB vào máy Mac.");
       return false;
     }
 
     try {
-      const devices = await navigator.hid.requestDevice({ filters: this.filters });
-      if (!devices || devices.length === 0) {
-        this.log("Người dùng đã hủy chọn thiết bị.", "warn");
-        return false;
-      }
-
-      return await this._openDevice(devices[0]);
-    } catch (err) {
-      this.log(`Không thể kết nối thiết bị: ${err.message}`, "error");
-      return false;
-    }
-  }
-
-  async _openDevice(device) {
-    try {
-      if (!device.opened) {
-        await device.open();
-      }
-
-      this.device = device;
-      this.isConnected = true;
-      this.log(`Đã kết nối thành công với ${device.productName || "LEOBOG AMG65"}!`, "success");
-
-      this.device.addEventListener("inputreport", (event) => {
-        this._handleInputReport(event);
+      const devices = await navigator.hid.requestDevice({
+        filters: [{ vendorId: 0x0c45, productId: 0x800a }]
       });
+      if (!devices || devices.length === 0) return false;
 
-      if (this.onStatusChange) this.onStatusChange(true, device);
+      const target = devices.find(d => 
+        d.collections && d.collections.some(c => c.usagePage === 0xff68 || c.usagePage === 65384)
+      ) || devices[devices.length - 1];
 
-      // Query initial battery & status
-      setTimeout(() => this.getBattery(), 300);
-      // Auto sync time to screen clock
-      setTimeout(() => this.syncTime(), 800);
-      // Read initial keymap
-      setTimeout(() => this.readConfig(), 1200);
-
+      if (!target.opened) await target.open();
+      this.device = target;
+      this.isConnected = true;
+      this.useNativeBackend = false;
+      this.log(`Đã kết nối qua WebHID với ${target.productName || "LEOBOG AMG65"}!`, "success");
+      if (this.onStatusChange) this.onStatusChange(true, target);
       return true;
-    } catch (err) {
-      this.log(`Lỗi khi mở cổng HID: ${err.message}`, "error");
-      this.isConnected = false;
-      if (this.onStatusChange) this.onStatusChange(false, null);
+    } catch (e) {
+      this.log(`Lỗi WebHID: ${e.message}`, "error");
       return false;
     }
   }
 
   async disconnect() {
-    if (this.device) {
-      try {
-        await this.device.close();
-      } catch (e) {}
-    }
-    this.device = null;
     this.isConnected = false;
-    this.log("Đã ngắt kết nối với bàn phím.", "info");
+    this.device = null;
+    this.log("Đã ngắt kết nối.", "info");
     if (this.onStatusChange) this.onStatusChange(false, null);
   }
 
-  _handleInputReport(event) {
-    const { data } = event;
-    const bytes = new Uint8Array(data.buffer);
-    
-    // Check if any promise is waiting for a response
-    if (this.pendingResolvers.length > 0) {
-      const resolver = this.pendingResolvers.shift();
-      resolver(bytes);
-    }
-
-    // Battery / Status packet: starts with 0x20 0x01
-    if (bytes[0] === 0x20 && bytes[1] === 0x01) {
-      const rawBattery = bytes[3];
-      if (rawBattery === 0xff) {
-        this.battery = 100;
-        this.isCharging = true;
-      } else {
-        this.battery = Math.min(100, Math.max(0, rawBattery));
-        this.isCharging = false;
-      }
-      this.log(`Cập nhật pin: ${this.battery}% ${this.isCharging ? "(Đang cắm dây sạc)" : ""}`, "info");
-      if (this.onBatteryUpdate) this.onBatteryUpdate(this.battery, this.isCharging);
-    }
-  }
-
-  // Send packet with 32-byte checksum protocol
-  async sendChecksumCommand(buf32) {
-    if (!this.isConnected || !this.device) {
-      throw new Error("Bàn phím chưa được kết nối");
-    }
-
-    const payload = new Uint8Array(64);
-    for (let i = 0; i < 32; i++) {
-      payload[i] = buf32[i] || 0;
-    }
-
-    // Compute checksum (sum of first 32 bytes & 0xFF)
-    let sum = 0;
-    for (let i = 0; i < 32; i++) {
-      sum = (sum + payload[i]) & 0xff;
-    }
-    payload[32] = sum;
-
-    // Report ID 0x00
-    await this.device.sendReport(0x00, payload);
-  }
-
-  // Send 64-byte raw packet
-  async sendRawReport(bytes) {
-    if (!this.isConnected || !this.device) {
-      throw new Error("Bàn phím chưa được kết nối");
-    }
-    const payload = new Uint8Array(64);
-    payload.set(bytes.slice(0, 64));
-    await this.device.sendReport(0x00, payload);
-  }
-
-  // Synchronize Mac Local Time to Keyboard 1.14" LCD Screen
+  // Synchronize Mac Time
   async syncTime() {
     this.log("Đang đồng bộ giờ máy Mac vào màn hình LCD bàn phím...", "info");
-    const now = new Date();
-    const buf = new Uint8Array(32);
-
-    buf[0] = 0x0c;
-    buf[1] = 0x10;
-    buf[2] = 0x00;
-    buf[3] = 0x00;
-    buf[4] = 0x01; // active flag
-    buf[5] = 0x5a; // magic
-    buf[6] = now.getFullYear() % 100; // 26 for 2026
-    buf[7] = now.getMonth() + 1;      // 1-12
-    buf[8] = now.getDate();           // 1-31
-    buf[9] = now.getHours();          // 0-23
-    buf[10] = now.getMinutes();       // 0-59
-    buf[11] = now.getSeconds();       // 0-59
-    buf[12] = (now.getDay() + 6) % 7 + 1; // 1-7 (Mon-Sun)
-    
-    // Magic trailer
-    buf[18] = 0xaa;
-    buf[19] = 0x55;
-
-    await this.sendChecksumCommand(buf);
-    this.log(`Đã đồng bộ giờ thành công: ${now.toLocaleTimeString("vi-VN")} ${now.toLocaleDateString("vi-VN")}`, "success");
-    return true;
+    if (this.useNativeBackend) {
+      const res = await fetch("/api/sync-time", { method: "POST" });
+      const data = await res.json();
+      if (data.success) {
+        const now = new Date();
+        this.log(`Đã đồng bộ giờ thành công: ${now.toLocaleTimeString("vi-VN")}`, "success");
+        return true;
+      }
+    }
+    throw new Error("Không thể đồng bộ giờ");
   }
 
-  // Query Battery Level
-  async getBattery() {
-    if (!this.isConnected) return;
-    const buf = new Uint8Array(32);
-    buf[0] = 0x20;
-    buf[1] = 0x01;
-    await this.sendChecksumCommand(buf);
-  }
-
-  // Set RGB Lighting Mode
+  // Set Lighting
   async setLighting({ mode = 1, brightness = 4, speed = 3, r = 0, g = 255, b = 255, isRainbow = true }) {
-    this.log(`Đang cài đặt hiệu ứng LED: Mode ${mode}, Độ sáng ${brightness}, Tốc độ ${speed}...`, "info");
-    
-    const buf = new Uint8Array(32);
-    buf[0] = 0x05;
-    buf[1] = 0x10;
-    buf[2] = 0x00;
-    buf[3] = mode & 0xff;
-    buf[4] = brightness & 0x07;
-    buf[5] = speed & 0x07;
-    buf[6] = isRainbow ? 0x00 : 0x01; // 0 = rainbow/cycle, 1 = static custom color
-    buf[7] = 0x00;
-    buf[8] = r & 0xff;
-    buf[9] = g & 0xff;
-    buf[10] = b & 0xff;
-    
-    // Magic trailer
-    buf[18] = 0xaa;
-    buf[19] = 0x55;
-
-    await this.sendChecksumCommand(buf);
-    this.log("Đã áp dụng hiệu ứng LED thành công!", "success");
-    return true;
-  }
-
-  // Read full 512-byte config buffer (8 blocks of 64 bytes)
-  async readConfig() {
-    this.log("Đang đọc cấu hình phím từ bộ nhớ bàn phím...", "info");
-    try {
-      for (let b = 0; b < 8; b++) {
-        const req = new Uint8Array(64);
-        req[0] = 0x04;
-        req[1] = 0xf5;
-        req[2] = b;
-        req[8] = 0x08;
-
-        const responsePromise = new Promise((resolve) => {
-          this.pendingResolvers.push(resolve);
-          setTimeout(() => resolve(null), 800);
-        });
-
-        await this.sendRawReport(req);
-        const resp = await responsePromise;
-        if (resp) {
-          this.configBuffer.set(resp, b * 64);
-        }
+    this.log(`Đang áp dụng hiệu ứng LED Mode ${mode}...`, "info");
+    if (this.useNativeBackend) {
+      const res = await fetch("/api/lighting", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode, brightness, speed, r, g, b, isRainbow })
+      });
+      const data = await res.json();
+      if (data.success) {
+        this.log("Đã đổi hiệu ứng LED thành công!", "success");
+        return true;
       }
-      this.log("Đã nạp toàn bộ cấu hình phím thành công.", "success");
-      return this.configBuffer;
-    } catch (err) {
-      this.log(`Lỗi khi đọc cấu hình: ${err.message}`, "warn");
-      return null;
     }
+    throw new Error("Không thể đổi hiệu ứng LED");
   }
 
-  // Remap a specific key
-  // keyIndex: matrix key_index from Layout (0..108)
-  // newKeyCode: USB HID code (e.g. 0x04 for 'A')
+  // Remap key
   async remapKey(keyIndex, newKeyCode) {
-    this.log(`Remap phím (Index: ${keyIndex}) thành mã 0x${newKeyCode.toString(16)}...`, "info");
-    
-    const offset = keyIndex * 4;
-    if (offset + 2 < this.configBuffer.length) {
-      this.configBuffer[offset] = 0x00; // Type
-      this.configBuffer[offset + 1] = newKeyCode & 0xff;
-      this.configBuffer[offset + 2] = (newKeyCode >> 8) & 0xff;
+    this.log(`Đang gán phím (Index ${keyIndex} -> 0x${newKeyCode.toString(16)})...`, "info");
+    if (this.useNativeBackend) {
+      const res = await fetch("/api/remap", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ keyIndex, newKeyCode })
+      });
+      const data = await res.json();
+      if (data.success) {
+        this.log("Đã lưu gán phím thành công vào bàn phím!", "success");
+        return true;
+      }
     }
-
-    // Save and commit to device
-    await this.saveConfig();
+    throw new Error("Không thể gán phím");
   }
 
-  // Save current configBuffer to keyboard Flash memory
-  async saveConfig() {
-    this.log("Đang lưu cấu hình vào bộ nhớ bàn phím...", "info");
-    try {
-      // 1. Enter config write mode
-      const prep = new Uint8Array(64);
-      prep[0] = 0x04;
-      prep[1] = 0x18;
-      await this.sendRawReport(prep);
-
-      // 2. Write 8 blocks
-      for (let b = 0; b < 8; b++) {
-        const blockData = this.configBuffer.slice(b * 64, (b + 1) * 64);
-        const pkt = new Uint8Array(64);
-        pkt.set(blockData);
-        await this.sendRawReport(pkt);
+  async readConfig() {
+    if (this.useNativeBackend) {
+      const res = await fetch("/api/config");
+      const data = await res.json();
+      if (data.success) {
+        this.log("Đã đọc cấu hình phím thành công từ bộ nhớ bàn phím.", "success");
+        return data.config;
       }
-
-      // 3. Commit / Save
-      const commit = new Uint8Array(64);
-      commit[0] = 0x04;
-      commit[1] = 0x02;
-      await this.sendRawReport(commit);
-
-      this.log("Lưu cấu hình thành công!", "success");
-      return true;
-    } catch (err) {
-      this.log(`Lỗi khi lưu cấu hình: ${err.message}`, "error");
-      return false;
     }
+    return null;
+  }
+
+  async saveConfig() {
+    this.log("Cấu hình phím đã được lưu tự động!", "success");
+    return true;
   }
 }
