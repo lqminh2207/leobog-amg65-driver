@@ -142,9 +142,11 @@ class AppUI {
     LIGHT_MODES.forEach(m => {
       const opt = document.createElement("option");
       opt.value = m.id;
-      opt.textContent = `${m.id}. ${m.name}`;
+      opt.textContent = m.name;
       select.appendChild(opt);
     });
+    // Default to mode 5 (Colourful Wave)
+    select.value = "5";
 
     const chkRainbow = document.getElementById("chkRainbow");
     const singleColorControls = document.getElementById("singleColorControls");
@@ -183,7 +185,7 @@ class AppUI {
       });
     });
 
-    document.getElementById("btnApplyLighting").addEventListener("click", () => {
+    document.getElementById("btnApplyLighting").addEventListener("click", async () => {
       const mode = parseInt(select.value);
       const brightness = parseInt(brightnessRange.value);
       const speed = parseInt(speedRange.value);
@@ -194,8 +196,12 @@ class AppUI {
       const g = parseInt(hex.slice(3, 5), 16);
       const b = parseInt(hex.slice(5, 7), 16);
 
-      this.driver.setLighting({ mode, brightness, speed, r, g, b, isRainbow });
-      this.showToast("Đã gửi cài đặt LED tới bàn phím!", "success");
+      try {
+        await this.driver.setLighting({ mode, brightness, speed, r, g, b, isRainbow });
+        this.showToast("Đã áp dụng hiệu ứng LED thành công!", "success");
+      } catch (err) {
+        this.showToast("Lỗi cài đặt LED: " + err.message, "error");
+      }
     });
   }
 

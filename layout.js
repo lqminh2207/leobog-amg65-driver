@@ -88,26 +88,26 @@ export const KEYBOARD_KEYS = [
 ];
 
 export const LIGHT_MODES = [
-  { id: 0, name: "Tắt LED (Off)", desc: "Close Backlight", supportsColor: false },
-  { id: 1, name: "Sóng RGB (Wave)", desc: "Colourful Wave", supportsColor: false },
-  { id: 2, name: "Thở Đơn Sắc (Breathing)", desc: "Single Color Breathing", supportsColor: true },
-  { id: 3, name: "Sáng Tĩnh (Static)", desc: "Always On / Static Color", supportsColor: true },
-  { id: 4, name: "Phổ Quang (Spectrum)", desc: "Full Spectrum Cycle", supportsColor: false },
-  { id: 5, name: "Lấp Lánh (Glittering)", desc: "Glittering Star", supportsColor: true },
-  { id: 6, name: "Mưa Rơi (Falling)", desc: "Falling Rain", supportsColor: true },
-  { id: 7, name: "Lan Tỏa (Outward)", desc: "Outward Ripple", supportsColor: true },
-  { id: 8, name: "Cuộn Sóng (Scrolling)", desc: "Scrolling Wave", supportsColor: true },
-  { id: 9, name: "Xoay Vòng (Rolling)", desc: "Rolling Lights", supportsColor: true },
-  { id: 10, name: "Chong Chóng (Rotating)", desc: "Rotating Pinwheel", supportsColor: true },
-  { id: 11, name: "Phát Nổ (Explode)", desc: "Keypress Explosion", supportsColor: true },
-  { id: 12, name: "Tia Sáng (Launch)", desc: "Keypress Laser Launch", supportsColor: true },
-  { id: 13, name: "Gợn Sóng (Ripples)", desc: "Water Ripple on Keypress", supportsColor: true },
-  { id: 14, name: "Dòng Chảy (Flowing)", desc: "Flowing River", supportsColor: true },
-  { id: 15, name: "Nhịp Tim (Pulsating)", desc: "Pulsating Pulse", supportsColor: true },
-  { id: 16, name: "Nghiêng (Tilt)", desc: "Diagonal Tilt Motion", supportsColor: true },
-  { id: 17, name: "Con Thoi (Shuttle)", desc: "Shuttle Bounce", supportsColor: true },
-  { id: 18, name: "Hút Vào (Inwards)", desc: "Inward Vortex", supportsColor: true },
-  { id: 19, name: "Rực Rỡ (Floweriness)", desc: "Floweriness Bloom", supportsColor: true }
+  { id: 5, name: "Sóng RGB (Colourful Wave)", desc: "Dải sóng RGB đa sắc lượn qua các phím", supportsColor: false },
+  { id: 6, name: "Thở Nhịp Điệu (Breath)", desc: "Hiệu ứng thở đổi màu hoặc đơn sắc", supportsColor: true },
+  { id: 7, name: "Phổ Quang (Spectrum)", desc: "Đổi màu liên tục toàn bộ bàn phím", supportsColor: false },
+  { id: 3, name: "Lấp Lánh (Glittering)", desc: "Ánh sáng sao nhấp nháy ngẫu nhiên", supportsColor: true },
+  { id: 4, name: "Mưa Rơi (Falling)", desc: "Dải sáng rơi xuống từ trên cao", supportsColor: true },
+  { id: 8, name: "Lan Tỏa (Outward)", desc: "Lan tỏa ánh sáng từ phím khi nhấn", supportsColor: true },
+  { id: 9, name: "Cuộn Sóng (Scrolling)", desc: "Dải sóng ánh sáng cuộn ngang phím", supportsColor: true },
+  { id: 10, name: "Xoay Vòng (Rolling)", desc: "Ánh sáng xoay quanh tâm bàn phím", supportsColor: true },
+  { id: 11, name: "Chong Chóng (Rotating)", desc: "Quay tròn như cánh quạt chong chóng", supportsColor: true },
+  { id: 12, name: "Phát Nổ (Explode)", desc: "Bùng nổ ánh sáng tại phím vừa gõ", supportsColor: true },
+  { id: 13, name: "Tia Sáng (Launch)", desc: "Tia laser bắn sang hai bên khi bấm", supportsColor: true },
+  { id: 14, name: "Gợn Sóng (Ripples)", desc: "Gợn sóng nước lan tròn từ phím bấm", supportsColor: true },
+  { id: 15, name: "Dòng Chảy (Flowing)", desc: "Dòng ánh sáng chảy mượt mà", supportsColor: true },
+  { id: 16, name: "Nhịp Tim (Pulsating)", desc: "Xung ánh sáng đập theo nhịp tim", supportsColor: true },
+  { id: 17, name: "Nghiêng Chéo (Tilt)", desc: "Ánh sáng chạy theo góc nghiêng chéo", supportsColor: true },
+  { id: 18, name: "Con Thoi (Shuttle)", desc: "Dải sáng con thoi chạy qua lại", supportsColor: true },
+  { id: 19, name: "Tắt LED (Close Backlight)", desc: "Tắt hoàn toàn đèn nền", supportsColor: false },
+  { id: 0, name: "Tự Chọn 1 (Custom Profile 1)", desc: "Cấu hình tuỳ chỉnh người dùng 1", supportsColor: true },
+  { id: 1, name: "Tự Chọn 2 (Custom Profile 2)", desc: "Cấu hình tuỳ chỉnh người dùng 2", supportsColor: true },
+  { id: 2, name: "Tự Chọn 3 (Custom Profile 3)", desc: "Cấu hình tuỳ chỉnh người dùng 3", supportsColor: true }
 ];
 
 export const KEY_REMAP_CATEGORIES = [

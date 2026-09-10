@@ -1,52 +1,53 @@
 #!/usr/bin/env python3
 import http.server
 import socketserver
-import webbrowser
+import json
 import os
 import sys
-import json
 import datetime
 import time
 
 try:
     import hid
 except ImportError:
-    import subprocess
-    subprocess.run([sys.executable, "-m", "pip", "install", "hidapi"])
-    import hid
+    print("hidapi chua duoc cai dat. Vui long chay: pip install hidapi")
+    sys.exit(1)
 
 PORT = 8080
-DIRECTORY = os.path.dirname(os.path.abspath(__file__))
+DIRECTORY = "/Volumes/Transcend/leobog-amg65-mac"
+
+VENDOR_ID = 0x0C45   # SONiX
+PRODUCT_ID = 0x800A  # LEOBOG AMG65
 
 class KeyboardController:
-    VID = 0x0C45
-    PID = 0x800A
+    def __init__(self):
+        self.device_info = None
 
     def find_device_path(self):
-        devices = hid.enumerate(self.VID, self.PID)
+        devices = hid.enumerate()
         for d in devices:
-            if d.get("usage_page") == 0xFF68 and d.get("usage") == 0x61:
-                return d["path"]
+            if d.get("vendor_id") == VENDOR_ID and d.get("product_id") == PRODUCT_ID:
+                # Preferred interface: interface_number == 2 or usage_page == 0xFF68
+                if d.get("usage_page") == 0xFF68 or d.get("interface_number") == 2:
+                    return d["path"]
+        # Fallback to any interface for this VID/PID
         for d in devices:
-            if d.get("interface_number") == 2:
-                return d["path"]
-        for d in devices:
-            if d.get("usage_page") != 0x01:
+            if d.get("vendor_id") == VENDOR_ID and d.get("product_id") == PRODUCT_ID:
                 return d["path"]
         return None
 
-    def send_checksum_cmd(self, buf32):
+    def send_checksum_cmd(self, payload):
         path = self.find_device_path()
         if not path:
-            return {"success": False, "error": "Bàn phím LEOBOG AMG65 chưa được kết nối"}
+            return {"success": False, "error": "Ban phim chua duoc cam"}
         h = hid.device()
         try:
             h.open_path(path)
-            payload = [0] * 32
-            for i in range(min(32, len(buf32))):
-                payload[i] = buf32[i]
-            chk = sum(payload[:32]) & 0xFF
-            pkt = [0x00] + payload + [chk] + [0] * 32
+            buf = [0] * 32
+            for i in range(min(len(payload), 32)):
+                buf[i] = payload[i]
+            checksum = sum(buf[:32]) & 0xFF
+            pkt = [0x00] + buf + [checksum] + [0x00] * 31
             h.write(bytes(pkt[:65]))
             resp = h.read(64, timeout_ms=300)
             return {"success": True, "response": list(resp) if resp else []}
@@ -100,26 +101,94 @@ class KeyboardController:
         return self.send_checksum_cmd(buf)
 
     def set_lighting(self, mode, brightness, speed, r, g, b, is_rainbow):
-        buf = [0] * 32
-        buf[0] = 0x05
-        buf[1] = 0x10
-        buf[2] = 0x00
-        buf[3] = mode & 0xFF
-        buf[4] = brightness & 0x07
-        buf[5] = speed & 0x07
-        buf[6] = 0x00 if is_rainbow else 0x01
-        buf[7] = 0x00
-        buf[8] = r & 0xFF
-        buf[9] = g & 0xFF
-        buf[10] = b & 0xFF
-        buf[18] = 0xAA
-        buf[19] = 0x55
-        return self.send_checksum_cmd(buf)
+        path = self.find_device_path()
+        if not path:
+            return {"success": False, "error": "Ban phim chua duoc cam"}
+        
+        m = int(mode) & 0xFF
+        # Handle off state: mode 19 is official Close Backlight
+        if m == 0 and not is_rainbow and brightness == 0:
+            m = 19
+
+        # Hardware brightness is 1..5 (5 is max)
+        br = int(brightness)
+        if 0 <= br <= 4:
+            br = br + 1
+        br = max(1, min(5, br))
+        if m == 19:
+            br = 0  # backlight off
+
+        # Hardware speed is 1..5 (3 is normal)
+        sp = int(speed)
+        if 0 <= sp <= 4:
+            sp = sp + 1
+        sp = max(1, min(5, sp))
+
+        red = max(0, min(255, int(r)))
+        green = max(0, min(255, int(g)))
+        blue = max(0, min(255, int(b)))
+        rainbow_flag = 1 if is_rainbow else 0
+
+        h = hid.device()
+        try:
+            h.open_path(path)
+
+            def send_raw(payload):
+                pkt = [0x00] + list(payload) + [0x00] * (64 - len(payload))
+                h.write(bytes(pkt[:65]))
+                time.sleep(0.015)
+                return h.read(64, timeout_ms=100)
+
+            # Sequence 1: 0x13 Lighting Protocol (Primary wired MFC driver sequence - 0x43b3f0)
+            send_raw([0x04, 0x18])
+            send_raw([0x04, 0x13, 0, 0, 0, 0, 0, 0, 1])
+            p1 = [0] * 64
+            p1[0] = m
+            p1[1] = red
+            p1[2] = green
+            p1[3] = blue
+            p1[8] = rainbow_flag
+            p1[9] = br
+            p1[10] = sp
+            p1[11] = 0
+            p1[14] = 0xAA
+            p1[15] = 0x55
+            send_raw(p1)
+            send_raw([0x04, 0x02])
+            send_raw([0x04, 0xF0])
+
+            # Sequence 2: 0x17 Secondary Global/Layer Protocol (0x4454d0)
+            send_raw([0x04, 0x18])
+            send_raw([0x04, 0x17, m, 0, 0, 0, 0, 0, 1])
+            p2 = [0] * 64
+            p2[0] = 0
+            p2[1] = 1
+            p2[2] = 0
+            p2[5] = rainbow_flag
+            p2[6] = sp
+            p2[7] = br
+            p2[8] = red
+            p2[9] = green
+            p2[10] = blue
+            p2[62] = 0xAA
+            p2[63] = 0x55
+            send_raw(p2)
+            send_raw([0x04, 0x02])
+            send_raw([0x04, 0xF0])
+
+            return {"success": True, "mode": m, "brightness": br, "speed": sp}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+        finally:
+            try:
+                h.close()
+            except Exception:
+                pass
 
     def read_config(self):
         path = self.find_device_path()
         if not path:
-            return {"success": False, "error": "Bàn phím chưa được cắm"}
+            return {"success": False, "error": "Ban phim chua duoc cam"}
         h = hid.device()
         try:
             h.open_path(path)
@@ -158,26 +227,23 @@ class KeyboardController:
 
         path = self.find_device_path()
         if not path:
-            return {"success": False, "error": "Bàn phím chưa được cắm"}
+            return {"success": False, "error": "Ban phim chua duoc cam"}
         
         h = hid.device()
         try:
             h.open_path(path)
-            # 1. Enter config write mode
             prep = [0x00] + [0x00] * 64
             prep[1] = 0x04
             prep[2] = 0x18
             h.write(bytes(prep[:65]))
             time.sleep(0.04)
 
-            # 2. Write 8 blocks
             for b in range(8):
                 block = cfg[b * 64 : (b + 1) * 64]
                 pkt = [0x00] + block
                 h.write(bytes(pkt[:65]))
                 time.sleep(0.01)
 
-            # 3. Commit
             commit = [0x00] + [0x00] * 64
             commit[1] = 0x04
             commit[2] = 0x02
@@ -242,12 +308,12 @@ class AppHandler(http.server.SimpleHTTPRequestHandler):
             self.wfile.write(json.dumps(res).encode("utf-8"))
             return
         elif self.path == "/api/lighting":
-            mode = data.get("mode", 1)
+            mode = data.get("mode", 5)
             brightness = data.get("brightness", 4)
             speed = data.get("speed", 3)
-            r = data.get("r", 0)
-            g = data.get("g", 255)
-            b = data.get("b", 255)
+            r = data.get("r", 255)
+            g = data.get("g", 0)
+            b = data.get("b", 0)
             is_rainbow = data.get("isRainbow", True)
             res = controller.set_lighting(mode, brightness, speed, r, g, b, is_rainbow)
             self.send_response(200)
