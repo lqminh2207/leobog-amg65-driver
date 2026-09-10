@@ -8,6 +8,7 @@ import datetime
 import time
 import io
 import base64
+import ctypes
 
 try:
     import hid
@@ -193,7 +194,7 @@ class KeyboardController:
         path = self.find_device_path()
         if not path:
             return {"success": False, "error": "Ban phim chua duoc cam"}
-        
+
         try:
             if "," in data_url:
                 raw_data = base64.b64decode(data_url.split(",")[1])
@@ -203,7 +204,9 @@ class KeyboardController:
         except Exception as e:
             return {"success": False, "error": f"Loi doc file anh: {str(e)}"}
 
+        # 1. Prepare frames & RGB565 buffer
         frames_rgb565 = bytearray()
+        delays = []
         frame_count = 0
         max_frames = 120
 
@@ -212,10 +215,14 @@ class KeyboardController:
                 frame_count += 1
                 if frame_count > max_frames:
                     break
+
+                duration = frame.info.get("duration", 50)
+                delay_units = max(1, min(255, duration // 20))
+                delays.append(delay_units)
+
                 f_rgb = frame.convert("RGB")
-                # Scale & crop to exact 240x135 screen resolution
                 f_resized = ImageOps.fit(f_rgb, (240, 135), method=Image.Resampling.LANCZOS)
-                
+
                 pixels = f_resized.load()
                 for y in range(135):
                     for x in range(240):
@@ -226,10 +233,36 @@ class KeyboardController:
         except Exception as e:
             return {"success": False, "error": f"Loi chuyen doi RGB565: {str(e)}"}
 
-        block_size = 4096
-        total_blocks = (len(frames_rgb565) + block_size - 1) // block_size
-        padded = frames_rgb565 + b"\x00" * (total_blocks * block_size - len(frames_rgb565))
+        if frame_count == 0:
+            return {"success": False, "error": "Khong co khung hinh hop le"}
 
+        # 2. Build Flash Buffer with 256-byte header
+        header = bytearray([0xFF] * 256)
+        header[0] = frame_count & 0xFF
+        for i, d in enumerate(delays):
+            if i + 1 < 256:
+                header[i + 1] = d & 0xFF
+
+        full_payload = header + frames_rgb565
+        block_size = 4096
+        total_blocks = (len(full_payload) + block_size - 1) // block_size
+        padded_len = total_blocks * block_size
+        padded_data = full_payload + bytes([0xFF]) * (padded_len - len(full_payload))
+
+        # 3. Load native flash bridge dylib
+        dylib_path = os.path.join(DIRECTORY, "libusbflash.dylib")
+        if not os.path.exists(dylib_path):
+            return {"success": False, "error": "Chua tim thay libusbflash.dylib"}
+
+        try:
+            flash_lib = ctypes.CDLL(dylib_path)
+        except Exception as e:
+            return {"success": False, "error": f"Loi nap thu vien flash: {str(e)}"}
+
+        if flash_lib.leobog_test_interface3() != 0:
+            return {"success": False, "error": "Khong the mo cong USB Interface 3 cua ban phim"}
+
+        # 4. Handshake and Flash Sequence
         h = hid.device()
         try:
             h.open_path(path)
@@ -237,37 +270,47 @@ class KeyboardController:
             def send_cmd(pkt):
                 full = [0x00] + list(pkt) + [0x00] * (64 - len(pkt))
                 h.write(bytes(full[:65]))
-                time.sleep(0.015)
+                time.sleep(0.02)
                 return h.read(64, timeout_ms=300)
 
-            # 1. Enter config mode
+            # Step A: Enter config mode
             send_cmd([0x04, 0x18])
 
-            # 2. Header: 0x04 0x72
+            # Step B: Open Flash session
             hdr = [0x04, 0x72, 0x01, 0, 0, 0, 0, 0, total_blocks & 0xFF, (total_blocks >> 8) & 0xFF]
             send_cmd(hdr)
+            time.sleep(0.05)
 
-            # 3. Stream 4096-byte blocks
-            for b in range(total_blocks):
-                chunk = padded[b * block_size : (b + 1) * block_size]
-                pkt = bytes([0x00]) + chunk
-                h.write(pkt)
-                if b == 0:
-                    time.sleep(0.5)  # Flash sector erase wait
-                else:
-                    time.sleep(0.015)
-                h.read(64, timeout_ms=30)
+            # Step C: Stream 4096-byte blocks to Interface 3 Pipe 1
+            raw_c_buf = (ctypes.c_uint8 * len(padded_data)).from_buffer_copy(padded_data)
+            ret = flash_lib.leobog_flash_blocks(raw_c_buf, total_blocks, None)
+            if ret != 0:
+                raise RuntimeError(f"Loi ghi du lieu vao Flash (ma loi {ret})")
 
-            # 4. Commit to Flash
+            # Step D: Commit to Flash
             send_cmd([0x04, 0x02])
+            time.sleep(0.05)
+
+            # Step E: Reset to normal running mode
+            send_cmd([0x04, 0xF0])
+            time.sleep(0.05)
+
+            # Step F: Resync time to refresh display
+            self.sync_time()
 
             return {
                 "success": True,
                 "frames": frame_count,
                 "blocks": total_blocks,
-                "bytes": len(frames_rgb565)
+                "bytes": len(full_payload)
             }
         except Exception as e:
+            try:
+                send_cmd([0x04, 0x02])
+                send_cmd([0x04, 0xF0])
+                self.sync_time()
+            except Exception:
+                pass
             return {"success": False, "error": str(e)}
         finally:
             try:
