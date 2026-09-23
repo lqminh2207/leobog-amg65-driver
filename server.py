@@ -258,6 +258,72 @@ class LiveLedWorker(threading.Thread):
             self.stop_event.wait(3.0 if self.mode == "notify" else LIVE_INTERVAL)
 
 
+USER_CONFIG_PATH = os.path.join(DIRECTORY, "user_config.json")
+
+# key_index == light_index for every key on this board (from the driver's KeyboardLayout.xml).
+# 74 is the "/" key: our layout has it, the driver's XML omits it.
+KEY_INDEXES = [
+    0, 13, 14, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 32, 33, 34, 35, 36, 37, 38, 39, 40,
+    41, 42, 43, 44, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 64, 65, 66, 67, 68, 69, 70,
+    71, 72, 73, 74, 75, 76, 80, 81, 82, 83, 85, 87, 88, 89, 90, 91, 92, 104, 105, 106, 108
+]
+REMAP_SLOTS = 128
+
+DEFAULT_SETTINGS = {
+    "gameMode": 0, "disableAltTab": 0, "disableAltF4": 0, "disableWin": 0,
+    "fnToggle": 0, "sleepLight": 1, "ledBrightness": 7,
+}
+
+
+def modifier_mask(usage):
+    # 0xE0..0xE7 (Ctrl/Shift/Alt/Gui) collapse into one modifier bit
+    return 1 << (usage - 0xE0) if 0xE0 <= usage <= 0xE7 else 0
+
+
+def remap_entry(kind, code):
+    """One 4-byte slot of the 04 11 table: {type, p1, p2, p3}."""
+    code = int(code)
+    if kind == "disable":
+        return [0x05, 0x03, 0x00, 0x00]
+    if kind == "modifier":
+        return [0x02, modifier_mask(code), 0x00, 0x00]
+    if kind == "media":
+        return [0x03, code & 0xFF, 0x00, 0x00]
+    if kind == "consumer":  # 16-bit consumer usage (calculator, browser, mail...)
+        return [0x03, code & 0xFF, (code >> 8) & 0xFF, 0x00]
+    if kind == "shortcut":  # code = (modifier mask << 8) | usage
+        return [0x02, (code >> 8) & 0xFF, code & 0xFF, 0x00]
+    return [0x02, 0x00, code & 0xFF, 0x00]  # plain key
+
+
+def load_user_config():
+    try:
+        with open(USER_CONFIG_PATH) as f:
+            data = json.load(f)
+    except Exception:
+        data = {}
+    data.setdefault("keymap", {})
+    data.setdefault("keyColors", {})
+    data.setdefault("settings", dict(DEFAULT_SETTINGS))
+    return data
+
+
+def save_user_config(data):
+    with open(USER_CONFIG_PATH, "w") as f:
+        json.dump(data, f, indent=2)
+
+
+def send_table(h, opcode, table, tag):
+    """04 18 -> opcode with packet count -> 512 B in eight 64-byte reports -> 04 02 -> 04 F0."""
+    if not ack_ok(send_cmd(h, [0x04, 0x18], tag)):
+        raise RuntimeError("Ban phim khong vao che do cau hinh (04 18)")
+    if not ack_ok(send_cmd(h, [0x04, opcode, 0, 0, 0, 0, 0, 0, 0x08], tag)):
+        raise RuntimeError(f"Ban phim tu choi lenh {opcode:02x}")
+    for i in range(8):
+        h.write(bytes([0x00]) + bytes(table[i * 64:(i + 1) * 64]))
+        h.read(64, timeout_ms=200)
+    send_cmd(h, [0x04, 0x02], tag)
+    send_cmd(h, [0x04, 0xF0], tag)
 
 
 def ack_ok(resp):
@@ -736,48 +802,161 @@ class KeyboardController:
             finally:
                 DEVICE_LOCK.release()
 
-    def remap_key(self, key_index, new_key_code):
-        cfg_res = self.read_config()
-        if not cfg_res.get("success"):
-            return cfg_res
-        cfg = cfg_res["config"]
-        offset = key_index * 4
-        if offset + 2 < len(cfg):
-            cfg[offset] = 0x00
-            cfg[offset + 1] = new_key_code & 0xFF
-            cfg[offset + 2] = (new_key_code >> 8) & 0xFF
-
+    def apply_keymap(self, keymap):
+        """Send the whole 128-slot remap table; the keyboard cannot read it back, so we always send all of it."""
         path = self.find_device_path()
         if not path:
             return {"success": False, "error": "Ban phim chua duoc cam"}
-        
+
+        table = bytearray(512)
+        for index, entry in keymap.items():
+            slot = int(index)
+            if slot >= REMAP_SLOTS:
+                continue
+            table[slot * 4:slot * 4 + 4] = bytes(remap_entry(entry.get("kind", "key"), entry.get("code", 0)))
+        table[510] = 0xAA
+        table[511] = 0x55
+
         h = hid.device()
+        DEVICE_LOCK.acquire()
         try:
             h.open_path(path)
-            prep = [0x00] + [0x00] * 64
-            prep[1] = 0x04
-            prep[2] = 0x18
-            h.write(bytes(prep[:65]))
-            time.sleep(0.04)
-
-            for b in range(8):
-                block = cfg[b * 64 : (b + 1) * 64]
-                pkt = [0x00] + block
-                h.write(bytes(pkt[:65]))
-                time.sleep(0.01)
-
-            commit = [0x00] + [0x00] * 64
-            commit[1] = 0x04
-            commit[2] = 0x02
-            h.write(bytes(commit[:65]))
-            return {"success": True}
+            send_table(h, 0x11, table, "remap")
+            return {"success": True, "keys": len(keymap)}
         except Exception as e:
             return {"success": False, "error": str(e)}
         finally:
             try:
                 h.close()
-            except Exception:
-                pass
+            finally:
+                DEVICE_LOCK.release()
+
+    def remap_key(self, key_index, kind, code):
+        cfg = load_user_config()
+        if kind == "default":
+            cfg["keymap"].pop(str(key_index), None)
+        else:
+            cfg["keymap"][str(key_index)] = {"kind": kind, "code": int(code)}
+        res = self.apply_keymap(cfg["keymap"])
+        if res.get("success"):
+            save_user_config(cfg)
+        return res
+
+    def reset_keymap(self):
+        cfg = load_user_config()
+        cfg["keymap"] = {}
+        res = self.apply_keymap({})
+        if res.get("success"):
+            save_user_config(cfg)
+        return res
+
+    def apply_key_colors(self, colors):
+        """04 23 table: {light_index, R, G, B} at light_index*4."""
+        path = self.find_device_path()
+        if not path:
+            return {"success": False, "error": "Ban phim chua duoc cam"}
+
+        table = bytearray(512)
+        for light_index in KEY_INDEXES:
+            value = colors.get(str(light_index)) or colors.get(light_index) or "#000000"
+            r, g, b = parse_rgb(value)
+            table[light_index * 4:light_index * 4 + 4] = bytes((light_index, r, g, b))
+
+        h = hid.device()
+        DEVICE_LOCK.acquire()
+        try:
+            h.open_path(path)
+            send_table(h, 0x23, table, "keyrgb")
+            cfg = load_user_config()
+            cfg["keyColors"] = {str(k): v for k, v in colors.items()}
+            save_user_config(cfg)
+            return {"success": True, "keys": len(KEY_INDEXES)}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+        finally:
+            try:
+                h.close()
+            finally:
+                DEVICE_LOCK.release()
+
+    def read_key_colors(self):
+        """Read the per-key colours back with 04 F5 then eight 04 F6 pages."""
+        path = self.find_device_path()
+        if not path:
+            return {"success": False, "error": "Ban phim chua duoc cam"}
+
+        h = hid.device()
+        DEVICE_LOCK.acquire()
+        try:
+            h.open_path(path)
+            if not ack_ok(send_cmd(h, [0x04, 0xF5, 0, 0, 0, 0, 0, 0, 0x08], "keyrgb")):
+                raise RuntimeError("Ban phim tu choi lenh doc mau (04 F5)")
+            for _ in range(2):
+                h.read(64, timeout_ms=1)
+
+            data = bytearray()
+            for page in range(8):
+                h.write(bytes([0x00, 0x04, 0xF6, page, 0, 0, 0, 0, 0x08] + [0] * 56))
+                time.sleep(0.006)
+                resp = h.read(64, timeout_ms=360)
+                if not resp or len(resp) != 64:
+                    raise RuntimeError(f"Khong doc duoc trang mau {page + 1}/8")
+                data.extend(resp)
+
+            colors = {}
+            for light_index in KEY_INDEXES:
+                off = light_index * 4
+                colors[str(light_index)] = "#%02x%02x%02x" % (data[off + 1], data[off + 2], data[off + 3])
+            return {"success": True, "colors": colors}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+        finally:
+            try:
+                h.close()
+            finally:
+                DEVICE_LOCK.release()
+
+    def apply_settings(self, settings):
+        """04 17 keyboard settings packet."""
+        path = self.find_device_path()
+        if not path:
+            return {"success": False, "error": "Ban phim chua duoc cam"}
+
+        merged = dict(DEFAULT_SETTINGS)
+        merged.update({k: int(v) for k, v in settings.items() if k in DEFAULT_SETTINGS})
+
+        pkt = [0] * 64
+        pkt[1] = 1 if merged["gameMode"] else 0
+        pkt[2] = 1 if merged["disableAltTab"] else 0
+        pkt[3] = 1 if merged["disableAltF4"] else 0
+        pkt[4] = 1 if merged["disableWin"] else 0
+        pkt[5] = 1 if merged["fnToggle"] else 0
+        pkt[6] = max(0, min(3, merged["sleepLight"]))
+        pkt[7] = max(0, min(10, merged["ledBrightness"]))
+        pkt[62] = 0xAA
+        pkt[63] = 0x55
+
+        h = hid.device()
+        DEVICE_LOCK.acquire()
+        try:
+            h.open_path(path)
+            if not ack_ok(send_cmd(h, [0x04, 0x18], "settings")):
+                raise RuntimeError("Ban phim khong vao che do cau hinh (04 18)")
+            if not ack_ok(send_cmd(h, [0x04, 0x17, 0, 0, 0, 0, 0, 0, 0x01], "settings")):
+                raise RuntimeError("Ban phim tu choi lenh cai dat (04 17)")
+            send_cmd(h, pkt, "settings")
+            send_cmd(h, [0x04, 0x02], "settings")
+            cfg = load_user_config()
+            cfg["settings"] = merged
+            save_user_config(cfg)
+            return {"success": True, "settings": merged}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+        finally:
+            try:
+                h.close()
+            finally:
+                DEVICE_LOCK.release()
 
 
 controller = KeyboardController()
@@ -804,6 +983,19 @@ class AppHandler(http.server.SimpleHTTPRequestHandler):
             self.send_header("Content-Type", "application/json")
             self.end_headers()
             self.wfile.write(json.dumps(status).encode("utf-8"))
+            return
+        elif self.path == "/api/user-config":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps({"success": True, **load_user_config()}).encode("utf-8"))
+            return
+        elif self.path == "/api/key-colors":
+            res = controller.read_key_colors()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps(res).encode("utf-8"))
             return
         elif self.path == "/api/config":
             res = controller.read_config()
@@ -886,10 +1078,29 @@ class AppHandler(http.server.SimpleHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(json.dumps(res).encode("utf-8"))
             return
+        elif self.path == "/api/remap/reset":
+            res = controller.reset_keymap()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps(res).encode("utf-8"))
+            return
+        elif self.path == "/api/key-colors":
+            res = controller.apply_key_colors(data.get("colors", {}))
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps(res).encode("utf-8"))
+            return
+        elif self.path == "/api/settings":
+            res = controller.apply_settings(data.get("settings", {}))
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps(res).encode("utf-8"))
+            return
         elif self.path == "/api/remap":
-            key_index = data.get("keyIndex", 0)
-            new_key_code = data.get("newKeyCode", 0)
-            res = controller.remap_key(key_index, new_key_code)
+            res = controller.remap_key(data.get("keyIndex", 0), data.get("kind", "key"), data.get("code", 0))
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()

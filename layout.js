@@ -114,72 +114,78 @@ export const KEY_REMAP_CATEGORIES = [
   {
     name: "Chữ cái (Letters)",
     keys: [
-      { code: 0x04, name: "A" }, { code: 0x05, name: "B" }, { code: 0x06, name: "C" }, { code: 0x07, name: "D" },
-      { code: 0x08, name: "E" }, { code: 0x09, name: "F" }, { code: 0x0A, name: "G" }, { code: 0x0B, name: "H" },
-      { code: 0x0C, name: "I" }, { code: 0x0D, name: "J" }, { code: 0x0E, name: "K" }, { code: 0x0F, name: "L" },
-      { code: 0x10, name: "M" }, { code: 0x11, name: "N" }, { code: 0x12, name: "O" }, { code: 0x13, name: "P" },
-      { code: 0x14, name: "Q" }, { code: 0x15, name: "R" }, { code: 0x16, name: "S" }, { code: 0x17, name: "T" },
-      { code: 0x18, name: "U" }, { code: 0x19, name: "V" }, { code: 0x1A, name: "W" }, { code: 0x1B, name: "X" },
-      { code: 0x1C, name: "Y" }, { code: 0x1D, name: "Z" }
+      { kind: "key", code: 0x04, name: "A" }, { kind: "key", code: 0x05, name: "B" }, { kind: "key", code: 0x06, name: "C" }, { kind: "key", code: 0x07, name: "D" },
+      { kind: "key", code: 0x08, name: "E" }, { kind: "key", code: 0x09, name: "F" }, { kind: "key", code: 0x0A, name: "G" }, { kind: "key", code: 0x0B, name: "H" },
+      { kind: "key", code: 0x0C, name: "I" }, { kind: "key", code: 0x0D, name: "J" }, { kind: "key", code: 0x0E, name: "K" }, { kind: "key", code: 0x0F, name: "L" },
+      { kind: "key", code: 0x10, name: "M" }, { kind: "key", code: 0x11, name: "N" }, { kind: "key", code: 0x12, name: "O" }, { kind: "key", code: 0x13, name: "P" },
+      { kind: "key", code: 0x14, name: "Q" }, { kind: "key", code: 0x15, name: "R" }, { kind: "key", code: 0x16, name: "S" }, { kind: "key", code: 0x17, name: "T" },
+      { kind: "key", code: 0x18, name: "U" }, { kind: "key", code: 0x19, name: "V" }, { kind: "key", code: 0x1A, name: "W" }, { kind: "key", code: 0x1B, name: "X" },
+      { kind: "key", code: 0x1C, name: "Y" }, { kind: "key", code: 0x1D, name: "Z" }
     ]
   },
   {
     name: "Số & Ký tự (Numbers)",
     keys: [
-      { code: 0x1E, name: "1 !" }, { code: 0x1F, name: "2 @" }, { code: 0x20, name: "3 #" }, { code: 0x21, name: "4 $" },
-      { code: 0x22, name: "5 %" }, { code: 0x23, name: "6 ^" }, { code: 0x24, name: "7 &" }, { code: 0x25, name: "8 *" },
-      { code: 0x26, name: "9 (" }, { code: 0x27, name: "0 )" }, { code: 0x2D, name: "- _" }, { code: 0x2E, name: "= +" },
-      { code: 0x2F, name: "[ {" }, { code: 0x30, name: "] }" }, { code: 0x31, name: "\\ |" }, { code: 0x33, name: "; :" },
-      { code: 0x34, name: "' \"" }, { code: 0x35, name: "` ~" }, { code: 0x36, name: ", <" }, { code: 0x37, name: ". >" },
-      { code: 0x38, name: "/ ?" }
+      { kind: "key", code: 0x1E, name: "1 !" }, { kind: "key", code: 0x1F, name: "2 @" }, { kind: "key", code: 0x20, name: "3 #" }, { kind: "key", code: 0x21, name: "4 $" },
+      { kind: "key", code: 0x22, name: "5 %" }, { kind: "key", code: 0x23, name: "6 ^" }, { kind: "key", code: 0x24, name: "7 &" }, { kind: "key", code: 0x25, name: "8 *" },
+      { kind: "key", code: 0x26, name: "9 (" }, { kind: "key", code: 0x27, name: "0 )" }, { kind: "key", code: 0x2D, name: "- _" }, { kind: "key", code: 0x2E, name: "= +" },
+      { kind: "key", code: 0x2F, name: "[ {" }, { kind: "key", code: 0x30, name: "] }" }, { kind: "key", code: 0x31, name: "\\ |" }, { kind: "key", code: 0x33, name: "; :" },
+      { kind: "key", code: 0x34, name: "' \"" }, { kind: "key", code: 0x35, name: "` ~" }, { kind: "key", code: 0x36, name: ", <" }, { kind: "key", code: 0x37, name: ". >" },
+      { kind: "key", code: 0x38, name: "/ ?" }
     ]
   },
   {
     name: "Phím chức năng (F1 - F12)",
     keys: [
-      { code: 0x3A, name: "F1" }, { code: 0x3B, name: "F2" }, { code: 0x3C, name: "F3" }, { code: 0x3D, name: "F4" },
-      { code: 0x3E, name: "F5" }, { code: 0x3F, name: "F6" }, { code: 0x40, name: "F7" }, { code: 0x41, name: "F8" },
-      { code: 0x42, name: "F9" }, { code: 0x43, name: "F10" }, { code: 0x44, name: "F11" }, { code: 0x45, name: "F12" }
+      { kind: "key", code: 0x3A, name: "F1" }, { kind: "key", code: 0x3B, name: "F2" }, { kind: "key", code: 0x3C, name: "F3" }, { kind: "key", code: 0x3D, name: "F4" },
+      { kind: "key", code: 0x3E, name: "F5" }, { kind: "key", code: 0x3F, name: "F6" }, { kind: "key", code: 0x40, name: "F7" }, { kind: "key", code: 0x41, name: "F8" },
+      { kind: "key", code: 0x42, name: "F9" }, { kind: "key", code: 0x43, name: "F10" }, { kind: "key", code: 0x44, name: "F11" }, { kind: "key", code: 0x45, name: "F12" }
     ]
   },
   {
     name: "Điều hướng & Soạn thảo (Control)",
     keys: [
-      { code: 0x29, name: "Esc" }, { code: 0x28, name: "Enter" }, { code: 0x2A, name: "Backspace" },
-      { code: 0x2B, name: "Tab" }, { code: 0x2C, name: "Space" }, { code: 0x39, name: "Caps Lock" },
-      { code: 0x4C, name: "Delete" }, { code: 0x4A, name: "Home" }, { code: 0x4D, name: "End" },
-      { code: 0x4B, name: "Page Up" }, { code: 0x4E, name: "Page Down" }, { code: 0x49, name: "Insert" },
-      { code: 0x52, name: "Mũi tên Lên (↑)" }, { code: 0x51, name: "Mũi tên Xuống (↓)" },
-      { code: 0x50, name: "Mũi tên Trái (←)" }, { code: 0x4F, name: "Mũi tên Phải (→)" }
+      { kind: "key", code: 0x29, name: "Esc" }, { kind: "key", code: 0x28, name: "Enter" }, { kind: "key", code: 0x2A, name: "Backspace" },
+      { kind: "key", code: 0x2B, name: "Tab" }, { kind: "key", code: 0x2C, name: "Space" }, { kind: "key", code: 0x39, name: "Caps Lock" },
+      { kind: "key", code: 0x4C, name: "Delete" }, { kind: "key", code: 0x4A, name: "Home" }, { kind: "key", code: 0x4D, name: "End" },
+      { kind: "key", code: 0x4B, name: "Page Up" }, { kind: "key", code: 0x4E, name: "Page Down" }, { kind: "key", code: 0x49, name: "Insert" },
+      { kind: "key", code: 0x52, name: "Mũi tên Lên (↑)" }, { kind: "key", code: 0x51, name: "Mũi tên Xuống (↓)" },
+      { kind: "key", code: 0x50, name: "Mũi tên Trái (←)" }, { kind: "key", code: 0x4F, name: "Mũi tên Phải (→)" }
     ]
   },
   {
     name: "Phím bổ trợ (Modifiers)",
     keys: [
-      { code: 0xE0, name: "Left Ctrl" }, { code: 0xE1, name: "Left Shift" }, { code: 0xE2, name: "Left Alt / Option" },
-      { code: 0xE3, name: "Left Command / Win" }, { code: 0xE4, name: "Right Ctrl" }, { code: 0xE5, name: "Right Shift" },
-      { code: 0xE6, name: "Right Alt / Option" }, { code: 0xE7, name: "Right Command / Win" }
+      { kind: "modifier", code: 0xE0, name: "Left Ctrl" }, { kind: "modifier", code: 0xE1, name: "Left Shift" }, { kind: "modifier", code: 0xE2, name: "Left Alt / Option" },
+      { kind: "modifier", code: 0xE3, name: "Left Command / Win" }, { kind: "modifier", code: 0xE4, name: "Right Ctrl" }, { kind: "modifier", code: 0xE5, name: "Right Shift" },
+      { kind: "modifier", code: 0xE6, name: "Right Alt / Option" }, { kind: "modifier", code: 0xE7, name: "Right Command / Win" }
     ]
   },
   {
     name: "Đa phương tiện (Media & Audio)",
     keys: [
-      { code: 0xE9, name: "Tăng âm lượng (Vol +)" },
-      { code: 0xEA, name: "Giảm âm lượng (Vol -)" },
-      { code: 0xE2, name: "Tắt tiếng (Mute)" },
-      { code: 0xCD, name: "Phát / Dừng (Play/Pause)" },
-      { code: 0xB5, name: "Bài tiếp (Next Track)" },
-      { code: 0xB6, name: "Bài trước (Prev Track)" },
-      { code: 0xB7, name: "Dừng phát (Stop)" }
+      { kind: "media", code: 0xE9, name: "Tăng âm lượng (Vol +)" },
+      { kind: "media", code: 0xEA, name: "Giảm âm lượng (Vol -)" },
+      { kind: "media", code: 0xE2, name: "Tắt tiếng (Mute)" },
+      { kind: "media", code: 0xCD, name: "Phát / Dừng (Play/Pause)" },
+      { kind: "media", code: 0xB5, name: "Bài tiếp (Next Track)" },
+      { kind: "media", code: 0xB6, name: "Bài trước (Prev Track)" },
+      { kind: "media", code: 0xB7, name: "Dừng phát (Stop)" }
+    ]
+  },
+  {
+    name: "Khôi phục",
+    keys: [
+      { kind: "default", code: 0x00, name: "Trả về chức năng gốc" }
     ]
   },
   {
     name: "Tiện ích & Ứng dụng (Shortcuts)",
     keys: [
-      { code: 0x192, name: "Máy tính (Calculator)" },
-      { code: 0x194, name: "Trình duyệt (Browser)" },
-      { code: 0x18A, name: "Thư điện tử (Email)" },
-      { code: 0x00, name: "Vô hiệu hóa phím (Disabled)" }
+      { kind: "consumer", code: 0x192, name: "Máy tính (Calculator)" },
+      { kind: "consumer", code: 0x194, name: "Trình duyệt (Browser)" },
+      { kind: "consumer", code: 0x18A, name: "Thư điện tử (Email)" },
+      { kind: "disable", code: 0x00, name: "Vô hiệu hóa phím (Disabled)" }
     ]
   }
 ];

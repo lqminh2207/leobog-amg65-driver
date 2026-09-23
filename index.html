@@ -61,11 +61,11 @@
       <div class="stage-header">
         <div class="layer-toggle">
           <button class="layer-btn active" id="layer0Btn" data-layer="0">Tầng 0 (Mặc định)</button>
-          <button class="layer-btn" id="layer1Btn" data-layer="1">Tầng 1 (Fn Layer)</button>
+          <button class="layer-btn" id="layer1Btn" data-layer="1"  title="Tầng Fn do firmware quy định, chỉ xem">Tầng 1 (Fn Layer, chỉ xem)</button>
         </div>
 
         <div style="font-size: 13px; color: var(--text-muted);">
-          Nhấp vào bất kỳ phím nào để đổi tính năng (Remap)
+          <span id="remapHint">Nhấp vào bất kỳ phím nào để đổi tính năng (Remap)</span>
         </div>
       </div>
 
@@ -151,6 +151,22 @@
     <!-- Tab 2: RGB Lighting Studio -->
     <div class="tab-pane" id="tab-lighting">
       <div class="controls-grid">
+        <div class="control-card" style="grid-column: 1 / -1;">
+          <div class="card-title">Tô Màu Riêng Từng Phím</div>
+          <p class="led-hint">
+            Bật chế độ tô màu rồi bấm vào phím bất kỳ trên sơ đồ ở tab "Phím Bấm" để tô. Màu tĩnh này
+            chỉ hiện khi hiệu ứng LED đang ở chế độ tùy chỉnh của bàn phím.
+          </p>
+          <div class="led-toolbar">
+            <button class="btn btn-secondary" id="btnKeyPaintMode">Bật chế độ tô màu</button>
+            <input type="color" id="keyPaintColor" value="#00f0ff" title="Chọn màu">
+            <button class="btn btn-secondary" id="btnKeyColorsRead">Đọc màu từ bàn phím</button>
+            <button class="btn btn-secondary" id="btnKeyColorsClear">Xoá hết màu</button>
+            <button class="btn btn-primary" id="btnKeyColorsApply">Áp Dụng Màu Lên Phím</button>
+          </div>
+          <div class="led-status" id="keyColorStatus"></div>
+        </div>
+
         <!-- Light Mode Selector -->
         <div class="control-card">
           <div class="card-title">
@@ -442,6 +458,32 @@
             <tr><td style="color: var(--text-muted);">Usage Page:</td><td style="font-family: var(--font-mono);">0xFF68 (Vendor Defined)</td></tr>
             <tr><td style="color: var(--text-muted);">Trạng thái sạc:</td><td id="infoChargingStatus">Đang cắm dây USB (100%)</td></tr>
           </table>
+        </div>
+
+        <div class="control-card" style="grid-column: 1 / -1;">
+          <div class="card-title">Cài Đặt Bàn Phím</div>
+          <div class="led-toolbar">
+            <label class="setting-item"><input type="checkbox" id="setGameMode"> Chế độ chơi game</label>
+            <label class="setting-item"><input type="checkbox" id="setDisableWin"> Khoá phím Win / Command</label>
+            <label class="setting-item"><input type="checkbox" id="setDisableAltTab"> Chặn Alt + Tab</label>
+            <label class="setting-item"><input type="checkbox" id="setDisableAltF4"> Chặn Alt + F4</label>
+            <label class="setting-item"><input type="checkbox" id="setFnToggle"> Phím Fn kiểu bật/tắt (thay vì giữ)</label>
+          </div>
+          <div class="slider-group">
+            <div class="slider-label"><span>Thời gian tắt đèn khi không dùng</span></div>
+            <select class="mode-select" id="setSleepLight">
+              <option value="0">Không bao giờ tắt</option>
+              <option value="1">1 phút</option>
+              <option value="2">5 phút</option>
+              <option value="3">30 phút</option>
+            </select>
+          </div>
+          <div class="slider-group">
+            <div class="slider-label"><span>Độ sáng đèn nền</span><span id="setBrightnessVal">7</span></div>
+            <input type="range" id="setLedBrightness" min="0" max="10" value="7">
+          </div>
+          <button class="btn btn-primary" id="btnApplySettings">Lưu Cài Đặt Vào Bàn Phím</button>
+          <div class="led-status" id="settingsStatus"></div>
         </div>
 
         <div class="control-card">

@@ -192,21 +192,34 @@ export class LeobogDriver {
     return this.postJson("/api/led-matrix/import", { image });
   }
 
-  async remapKey(keyIndex, newKeyCode) {
-    this.log(`Đang gán phím (Index ${keyIndex} -> 0x${newKeyCode.toString(16)})...`, "info");
-    if (this.useNativeBackend) {
-      const res = await fetch("/api/remap", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ keyIndex, newKeyCode })
-      });
-      const data = await res.json();
-      if (data.success) {
-        this.log("Đã lưu gán phím thành công vào bàn phím!", "success");
-        return true;
-      }
-    }
-    throw new Error("Không thể gán phím");
+  async remapKey(keyIndex, kind, code) {
+    if (!this.useNativeBackend) throw new Error("Chưa kết nối tới bàn phím");
+    this.log(`Đang gán phím (Index ${keyIndex} -> ${kind} 0x${code.toString(16)})...`, "info");
+    const data = await this.postJson("/api/remap", { keyIndex, kind, code });
+    this.log("Đã lưu gán phím thành công vào bàn phím!", "success");
+    return data;
+  }
+
+  async resetKeymap() {
+    if (!this.useNativeBackend) throw new Error("Chưa kết nối tới bàn phím");
+    return this.postJson("/api/remap/reset", {});
+  }
+
+  async applyKeyColors(colors) {
+    if (!this.useNativeBackend) throw new Error("Chưa kết nối tới bàn phím");
+    return this.postJson("/api/key-colors", { colors });
+  }
+
+  async readKeyColors() {
+    const res = await fetch("/api/key-colors");
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error || "Không đọc được màu");
+    return data.colors;
+  }
+
+  async applySettings(settings) {
+    if (!this.useNativeBackend) throw new Error("Chưa kết nối tới bàn phím");
+    return this.postJson("/api/settings", { settings });
   }
 
   async readConfig() {

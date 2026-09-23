@@ -9,6 +9,8 @@ class AppUI {
     this.currentLayer = 0;
     this.selectedKey = null;
     this.keyRemapCache = {}; // key_index -> new key name / code
+    this.keyColors = {};     // light_index -> "#rrggbb"
+    this.paintMode = false;
 
     this.initElements();
     this.initKeyboardLayout();
@@ -18,6 +20,9 @@ class AppUI {
     this.initClock();
     this.attachEvents();
     this.ledMatrix = new LedMatrixEditor(this);
+    this.initKeyColorControls();
+    this.initSettingsControls();
+    this.loadUserConfig();
 
     // Try auto-connecting on start
     this.driver.autoConnect();
@@ -104,6 +109,12 @@ class AppUI {
       if (k.name === "Space") keyEl.classList.add("accent-space");
       if (k.name === "Enter") keyEl.classList.add("accent-enter");
 
+      const color = this.keyColors[k.light_index];
+      if (color) {
+        keyEl.style.color = color;
+        keyEl.classList.add("painted");
+      }
+
       const label = this.keyRemapCache[k.key_index] || k.name;
       const fnLabel = k.fn ? `Fn: ${k.fn}` : "";
 
@@ -112,7 +123,10 @@ class AppUI {
         ${fnLabel ? `<span class="key-secondary">${fnLabel}</span>` : ""}
       `;
 
-      keyEl.addEventListener("click", () => this.openRemap(k));
+      keyEl.addEventListener("click", () => {
+        if (this.paintMode) this.paintKey(k);
+        else this.openRemap(k);
+      });
       this.keysContainer.appendChild(keyEl);
     });
   }
@@ -122,6 +136,10 @@ class AppUI {
       const idx = parseInt(el.dataset.keyIndex);
       const k = KEYBOARD_KEYS.find(item => item.key_index === idx);
       if (!k) return;
+
+      const color = this.keyColors[k.light_index];
+      el.style.color = color || "";
+      el.classList.toggle("painted", !!color);
 
       const primary = el.querySelector(".key-primary");
       if (primary) {
@@ -240,6 +258,10 @@ class AppUI {
   }
 
   openRemap(key) {
+    if (this.currentLayer === 1) {
+      this.showToast("Tầng Fn do firmware bàn phím quy định, phần mềm gốc cũng không đổi được.", "info");
+      return;
+    }
     this.selectedKey = key;
     this.remapKeyTitle.textContent = `Đổi phím: ${key.name}`;
     this.remapKeySubtitle = `Gán lại chức năng cho phím (Tầng ${this.currentLayer}, Index: ${key.key_index})`;
@@ -261,8 +283,141 @@ class AppUI {
     if (this.selectedKeyElement) this.selectedKeyElement.classList.remove("selected");
 
     this.showToast(`Đang gán phím ${this.selectedKey.name} -> ${remapTarget.name}...`, "info");
-    await this.driver.remapKey(this.selectedKey.key_index, remapTarget.code);
-    this.showToast(`Đã lưu thành công: ${this.selectedKey.name} -> ${remapTarget.name}!`, "success");
+    try {
+      await this.driver.remapKey(this.selectedKey.key_index, remapTarget.kind || "key", remapTarget.code);
+      if (remapTarget.kind === "default") delete this.keyRemapCache[this.selectedKey.key_index];
+      this.showToast(`Đã lưu thành công: ${this.selectedKey.name} -> ${remapTarget.name}!`, "success");
+    } catch (err) {
+      delete this.keyRemapCache[this.selectedKey.key_index];
+      this.updateKeyboardDisplay();
+      this.showToast("Lỗi: " + err.message, "error");
+    }
+  }
+
+  async loadUserConfig() {
+    try {
+      const res = await fetch("/api/user-config");
+      const data = await res.json();
+      this.keyColors = data.keyColors || {};
+      Object.entries(data.keymap || {}).forEach(([keyIndex, entry]) => {
+        const target = KEY_REMAP_CATEGORIES.flatMap(c => c.keys)
+          .find(k => k.code === entry.code && (k.kind || "key") === entry.kind);
+        if (target) this.keyRemapCache[keyIndex] = target.name;
+      });
+      this.applySettingsToUI(data.settings || {});
+      this.updateKeyboardDisplay();
+    } catch (e) {
+      // first run: no saved config yet
+    }
+  }
+
+  paintKey(key) {
+    const color = document.getElementById("keyPaintColor").value;
+    this.keyColors[key.light_index] = color;
+    this.updateKeyboardDisplay();
+    document.getElementById("keyColorStatus").textContent =
+      `Đã tô ${key.name}. Bấm "Áp Dụng Màu Lên Phím" để gửi xuống bàn phím.`;
+  }
+
+  setPaintMode(on) {
+    this.paintMode = on;
+    const btn = document.getElementById("btnKeyPaintMode");
+    btn.textContent = on ? "Tắt chế độ tô màu" : "Bật chế độ tô màu";
+    btn.classList.toggle("active", on);
+    const hint = document.getElementById("remapHint");
+    if (hint) {
+      hint.textContent = on
+        ? "Đang ở chế độ TÔ MÀU: bấm vào phím để tô màu đã chọn"
+        : "Nhấp vào bất kỳ phím nào để đổi tính năng (Remap)";
+    }
+  }
+
+  initKeyColorControls() {
+    const status = document.getElementById("keyColorStatus");
+    document.getElementById("btnKeyPaintMode").addEventListener("click", () => {
+      this.setPaintMode(!this.paintMode);
+      if (this.paintMode) {
+        document.querySelector("[data-tab=tab-remap]").click();
+        this.showToast("Đang ở chế độ tô màu: bấm vào phím trên sơ đồ để tô.", "info");
+      }
+    });
+
+    document.getElementById("btnKeyColorsClear").addEventListener("click", () => {
+      this.keyColors = {};
+      this.updateKeyboardDisplay();
+      status.textContent = 'Đã xoá màu trên sơ đồ. Bấm "Áp Dụng Màu Lên Phím" để gửi xuống bàn phím.';
+    });
+
+    document.getElementById("btnKeyColorsApply").addEventListener("click", async () => {
+      status.textContent = "Đang gửi bảng màu xuống bàn phím...";
+      try {
+        const res = await this.driver.applyKeyColors(this.keyColors);
+        status.textContent = `Đã gửi màu cho ${res.keys} phím.`;
+        this.showToast("Đã áp dụng màu riêng từng phím!", "success");
+      } catch (err) {
+        status.textContent = "Lỗi: " + err.message;
+        this.showToast("Lỗi: " + err.message, "error");
+      }
+    });
+
+    document.getElementById("btnKeyColorsRead").addEventListener("click", async () => {
+      status.textContent = "Đang đọc màu hiện có từ bàn phím...";
+      try {
+        this.keyColors = await this.driver.readKeyColors();
+        this.updateKeyboardDisplay();
+        status.textContent = "Đã đọc xong màu từ bàn phím.";
+      } catch (err) {
+        status.textContent = "Lỗi: " + err.message;
+        this.showToast("Lỗi: " + err.message, "error");
+      }
+    });
+  }
+
+  settingsFromUI() {
+    const checked = id => (document.getElementById(id).checked ? 1 : 0);
+    return {
+      gameMode: checked("setGameMode"),
+      disableWin: checked("setDisableWin"),
+      disableAltTab: checked("setDisableAltTab"),
+      disableAltF4: checked("setDisableAltF4"),
+      fnToggle: checked("setFnToggle"),
+      sleepLight: Number(document.getElementById("setSleepLight").value),
+      ledBrightness: Number(document.getElementById("setLedBrightness").value)
+    };
+  }
+
+  applySettingsToUI(settings) {
+    const set = (id, value) => { document.getElementById(id).checked = !!value; };
+    set("setGameMode", settings.gameMode);
+    set("setDisableWin", settings.disableWin);
+    set("setDisableAltTab", settings.disableAltTab);
+    set("setDisableAltF4", settings.disableAltF4);
+    set("setFnToggle", settings.fnToggle);
+    if (settings.sleepLight !== undefined) document.getElementById("setSleepLight").value = settings.sleepLight;
+    if (settings.ledBrightness !== undefined) {
+      document.getElementById("setLedBrightness").value = settings.ledBrightness;
+      document.getElementById("setBrightnessVal").textContent = settings.ledBrightness;
+    }
+  }
+
+  initSettingsControls() {
+    const brightness = document.getElementById("setLedBrightness");
+    brightness.addEventListener("input", () => {
+      document.getElementById("setBrightnessVal").textContent = brightness.value;
+    });
+
+    const status = document.getElementById("settingsStatus");
+    document.getElementById("btnApplySettings").addEventListener("click", async () => {
+      status.textContent = "Đang lưu cài đặt...";
+      try {
+        await this.driver.applySettings(this.settingsFromUI());
+        status.textContent = "Đã lưu cài đặt vào bàn phím.";
+        this.showToast("Đã lưu cài đặt vào bàn phím!", "success");
+      } catch (err) {
+        status.textContent = "Lỗi: " + err.message;
+        this.showToast("Lỗi: " + err.message, "error");
+      }
+    });
   }
 
   initTabs() {
