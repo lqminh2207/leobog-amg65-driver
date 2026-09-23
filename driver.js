@@ -205,10 +205,15 @@ export class LeobogDriver {
     return this.postJson("/api/led-matrix/import", { image });
   }
 
-  async remapKey(keyIndex, kind, code, label) {
+  async saveMacros(macros) {
+    if (!this.useNativeBackend) throw new Error("Chưa kết nối tới bàn phím");
+    return this.postJson("/api/macros", { macros });
+  }
+
+  async remapKey(keyIndex, kind, code, label, extra = {}) {
     if (!this.useNativeBackend) throw new Error("Chưa kết nối tới bàn phím");
     this.log(`Đang gán phím (Index ${keyIndex} -> ${kind} 0x${code.toString(16)})...`, "info");
-    const data = await this.postJson("/api/remap", { keyIndex, kind, code, label });
+    const data = await this.postJson("/api/remap", { ...extra, keyIndex, kind, code, label });
     this.log("Đã lưu gán phím thành công vào bàn phím!", "success");
     return data;
   }

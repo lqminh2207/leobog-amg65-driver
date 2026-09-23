@@ -104,6 +104,7 @@
       <button class="tab-btn" data-tab="tab-lighting">🌈 Đèn LED RGB (Lighting Studio)</button>
       <button class="tab-btn" data-tab="tab-screen">🖥️ Màn Hình TFT (Screen & Clock)</button>
       <button class="tab-btn" data-tab="tab-ledmatrix">✨ Màn LED Ma Trận (5×63)</button>
+      <button class="tab-btn" data-tab="tab-macro">⚡ Macro</button>
       <button class="tab-btn" data-tab="tab-device">ℹ️ Thông Tin Thiết Bị (Device Info)</button>
     </nav>
 
@@ -470,6 +471,66 @@
             <option value="60">Sau 60 phút</option>
             <option value="90">Sau 90 phút</option>
           </select>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tab: Macro -->
+    <div class="tab-pane" id="tab-macro">
+      <div class="controls-grid">
+        <div class="control-card" style="grid-column: 1 / -1;">
+          <div class="card-title">Ghi &amp; Sửa Macro</div>
+          <p class="led-hint">
+            Macro là chuỗi thao tác phím/chuột mà bàn phím tự gõ lại khi bạn bấm một phím. Bấm "Ghi thao tác"
+            rồi gõ trên bàn phím; một số tổ hợp hệ thống như ⌘+Tab, ⌘+Q bị macOS giữ lại nên không ghi được,
+            khi đó hãy thêm tay từng bước.
+          </p>
+          <div class="led-toolbar">
+            <select class="mode-select combo-key" id="macroList"></select>
+            <button class="btn btn-secondary" id="btnMacroNew">+ Tạo macro</button>
+            <button class="btn btn-secondary" id="btnMacroRename">Đổi tên</button>
+            <button class="btn btn-secondary" id="btnMacroDelete">Xoá</button>
+          </div>
+          <div class="led-toolbar">
+            <button class="btn btn-secondary" id="btnMacroRecord">● Ghi thao tác</button>
+            <select class="mode-select combo-key" id="macroDelayMode">
+              <option value="real">Độ trễ: đúng như lúc gõ</option>
+              <option value="fixed">Độ trễ: cố định</option>
+              <option value="none">Độ trễ: không chèn (10 ms)</option>
+            </select>
+            <input type="number" class="mode-select macro-ms" id="macroDelayMs" value="20" min="1" max="65535" title="ms">
+            <span class="slider-label">ms</span>
+            <button class="btn btn-secondary" id="btnMacroAddDelay">+ Chèn độ trễ</button>
+            <select class="mode-select combo-key" id="macroMouseButton">
+              <option value="1">Chuột trái</option>
+              <option value="2">Chuột phải</option>
+              <option value="4">Chuột giữa</option>
+            </select>
+            <button class="btn btn-secondary" id="btnMacroAddMouse">+ Chèn cú click</button>
+            <button class="btn btn-secondary" id="btnMacroClear">Xoá hết thao tác</button>
+          </div>
+          <div class="macro-hint" id="macroRecordHint" style="display: none;">Đang ghi… gõ phím bất kỳ, bấm "Dừng ghi" khi xong.</div>
+          <ol class="macro-events" id="macroEvents"></ol>
+          <button class="btn btn-primary" id="btnMacroSave">Lưu Macro Vào Bàn Phím</button>
+          <div class="led-status" id="macroStatus"></div>
+        </div>
+
+        <div class="control-card">
+          <div class="card-title">Gán Macro Cho Phím</div>
+          <div class="slider-group">
+            <div class="slider-label"><span>Phím</span></div>
+            <select class="mode-select" id="macroTargetKey"></select>
+          </div>
+          <div class="slider-group">
+            <div class="slider-label"><span>Cách chạy</span></div>
+            <select class="mode-select" id="macroPlayMode">
+              <option value="0">Chạy 1 lần</option>
+              <option value="1">Lặp lại nhiều lần</option>
+              <option value="2">Lặp đến khi bấm phím lần nữa</option>
+            </select>
+            <input type="number" class="mode-select" id="macroPlayCount" value="3" min="1" max="255" style="display: none;" title="Số lần lặp (1-255)">
+          </div>
+          <button class="btn btn-primary" id="btnMacroAssign">Gán Macro Đang Chọn</button>
         </div>
       </div>
     </div>

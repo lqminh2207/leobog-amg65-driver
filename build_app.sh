@@ -14,6 +14,7 @@ pyinstaller --noconfirm --clean --windowed \
   --add-data "driver.js:." \
   --add-data "layout.js:." \
   --add-data "ledmatrix.js:." \
+  --add-data "macro.js:." \
   --add-data "styles.css:." \
   --add-data "assets:assets" \
   --add-binary "libusbflash.dylib:." \

@@ -308,9 +308,17 @@ def modifier_mask(usage):
     return 1 << (usage - 0xE0) if 0xE0 <= usage <= 0xE7 else 0
 
 
-def remap_entry(kind, code):
+def remap_entry(kind, code, entry=None, macros=None):
     """One 4-byte slot of the 04 11 table: {type, p1, p2, p3}."""
     code = int(code)
+    if kind == "macro":  # code = macro id; mode 0 once, 1 N times, 2 until pressed again
+        ids = [m["id"] for m in macros or []]
+        if code not in ids:
+            return [0x00, 0x00, 0x00, 0x00]
+        entry = entry or {}
+        mode = int(entry.get("mode", 0))
+        count = max(1, min(255, int(entry.get("count", 1)))) if mode == 1 else 0
+        return [0x06, ids.index(code), mode, count]
     if kind == "disable":
         return [0x05, 0x03, 0x00, 0x00]
     if kind == "modifier":
@@ -326,6 +334,51 @@ def remap_entry(kind, code):
     return [0x02, 0x00, code & 0xFF, 0x00]  # plain key
 
 
+MACRO_BLOB_SIZE = 0xE00
+MACRO_INDEX_SLOTS = 100
+MACRO_EVENT_TYPES = {"delay": 0x50, "down": 0xB0, "up": 0x30, "mdown": 0x90, "mup": 0x10}
+AUTO_DELAY = [0x0A, 0x00, 0x00, 0x50]  # the driver's implicit 10 ms gap
+
+
+def macro_event_bytes(event):
+    kind = event["t"]
+    if kind == "delay":
+        ms = max(0, min(0xFFFF, int(event["ms"])))
+        return [ms & 0xFF, ms >> 8, 0x00, 0x50]
+    value = int(event.get("k", event.get("b", 0))) & 0xFF
+    return [0x00, 0x00, value, MACRO_EVENT_TYPES[kind]]
+
+
+def build_macro_blob(macros):
+    """Index table (100 x 4 B, absolute LE offsets) then per macro: 8-byte header with the
+    event count, 4-byte events, back to back. Returns (blob, packet count N)."""
+    if len(macros) > MACRO_INDEX_SLOTS:
+        raise RuntimeError(f"Toi da {MACRO_INDEX_SLOTS} macro")
+    blob = bytearray(MACRO_BLOB_SIZE + 64)
+    off = MACRO_INDEX_SLOTS * 4
+    for i, macro in enumerate(macros):
+        events = []
+        for event in macro.get("events", []):
+            if event["t"] != "delay" and events and events[-1][3] != 0x50:
+                events.append(AUTO_DELAY)
+            events.append(macro_event_bytes(event))
+        if not events:
+            blob[i * 4:i * 4 + 4] = b"\xff\xff\xff\xff"
+            continue
+        size = 8 + 4 * len(events)
+        if off + size > MACRO_BLOB_SIZE - 128:
+            raise RuntimeError("Tong do dai macro vuot bo nho ban phim")
+        blob[i * 4:i * 4 + 2] = off.to_bytes(2, "little")
+        blob[off:off + 2] = len(events).to_bytes(2, "little")
+        for j, ev in enumerate(events):
+            blob[off + 8 + j * 4:off + 12 + j * 4] = bytes(ev)
+        off += size
+    n = off // 64 + (2 if off % 64 else 1)  # one packet more than needed, like the driver
+    blob[n * 64 - 2] = 0xAA
+    blob[n * 64 - 1] = 0x55
+    return blob, n
+
+
 def load_user_config():
     try:
         with open(USER_CONFIG_PATH) as f:
@@ -335,6 +388,7 @@ def load_user_config():
     data.setdefault("keymap", {})
     data.setdefault("keyColors", {})
     data.setdefault("settings", dict(DEFAULT_SETTINGS))
+    data.setdefault("macros", [])
     return data
 
 
@@ -558,11 +612,14 @@ class KeyboardController:
     def import_profile(self, profile):
         """Load an exported profile and push keymap, per-key colours and settings to the keyboard."""
         cfg = load_user_config()
-        for key in ("keymap", "keyColors", "settings", "tftSlot", "sitReminder"):
+        for key in ("keymap", "keyColors", "settings", "tftSlot", "sitReminder", "macros"):
             if key in profile:
                 cfg[key] = profile[key]
         save_user_config(cfg)
-        steps = [("gán phím", self.apply_keymap(cfg["keymap"])), ("cài đặt", self.apply_settings(cfg["settings"]))]
+        steps = []
+        if cfg["macros"]:
+            steps.append(("macro", self.save_macros(cfg["macros"])))
+        steps += [("gán phím", self.apply_keymap(cfg["keymap"])), ("cài đặt", self.apply_settings(cfg["settings"]))]
         if cfg["keyColors"]:
             steps.append(("màu từng phím", self.apply_key_colors(cfg["keyColors"])))
         failed = [f"{name}: {res.get('error')}" for name, res in steps if not res.get("success")]
@@ -922,12 +979,14 @@ class KeyboardController:
         if not path:
             return {"success": False, "error": "Ban phim chua duoc cam"}
 
+        macros = load_user_config()["macros"]
         table = bytearray(512)
         for index, entry in keymap.items():
             slot = int(index)
             if slot >= REMAP_SLOTS:
                 continue
-            table[slot * 4:slot * 4 + 4] = bytes(remap_entry(entry.get("kind", "key"), entry.get("code", 0)))
+            table[slot * 4:slot * 4 + 4] = bytes(
+                remap_entry(entry.get("kind", "key"), entry.get("code", 0), entry, macros))
         table[510] = 0xAA
         table[511] = 0x55
 
@@ -945,16 +1004,62 @@ class KeyboardController:
             finally:
                 DEVICE_LOCK.release()
 
-    def remap_key(self, key_index, kind, code, label=None):
+    def remap_key(self, key_index, kind, code, label=None, extra=None):
         cfg = load_user_config()
         if kind == "default":
             cfg["keymap"].pop(str(key_index), None)
         else:
-            cfg["keymap"][str(key_index)] = {"kind": kind, "code": int(code), "label": label}
+            entry = {"kind": kind, "code": int(code), "label": label}
+            entry.update({k: v for k, v in (extra or {}).items() if k in ("mode", "count")})
+            cfg["keymap"][str(key_index)] = entry
         res = self.apply_keymap(cfg["keymap"])
         if res.get("success"):
             save_user_config(cfg)
         return res
+
+    def save_macros(self, macros):
+        """Upload every macro (04 19, 04 15 N, N+1 packets, 04 02), then re-send the keymap
+        because deleting a macro shifts the indexes keys point at."""
+        path = self.find_device_path()
+        if not path:
+            return {"success": False, "error": "Ban phim chua duoc cam"}
+        try:
+            blob, n = build_macro_blob(macros)
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+        h = hid.device()
+        DEVICE_LOCK.acquire()
+        try:
+            h.open_path(path)
+            send_cmd(h, [0x04, 0x19], "macro")
+            send_cmd(h, [0x04, 0x15, 0, 0, 0, 0, 0, 0, n], "macro")
+            time.sleep(0.03)
+            for i in range(n + 1):
+                h.write(bytes([0x00]) + bytes(blob[i * 64:(i + 1) * 64]))
+                resp = h.read(64, timeout_ms=200)
+                if i == 0 or i == n:
+                    print(f"[macro] packet {i + 1}/{n + 1} -> {bytes(resp[:8]).hex(' ') if resp else 'no reply'}")
+            time.sleep(0.03)
+            send_cmd(h, [0x04, 0x02], "macro")
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+        finally:
+            try:
+                h.close()
+            finally:
+                DEVICE_LOCK.release()
+
+        cfg = load_user_config()
+        cfg["macros"] = macros
+        ids = {m["id"] for m in macros}
+        cfg["keymap"] = {k: v for k, v in cfg["keymap"].items()
+                         if v.get("kind") != "macro" or v.get("code") in ids}
+        save_user_config(cfg)
+        res = self.apply_keymap(cfg["keymap"])
+        if not res.get("success"):
+            return res
+        return {"success": True, "macros": len(macros), "packets": n}
 
     def reset_keymap(self):
         cfg = load_user_config()
@@ -1200,8 +1305,11 @@ class AppHandler(http.server.SimpleHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(json.dumps(res).encode("utf-8"))
             return
-        elif self.path in ("/api/sit-reminder", "/api/profile/import", "/api/factory-reset", "/api/tft/sysinfo"):
-            if self.path == "/api/tft/sysinfo":
+        elif self.path in ("/api/sit-reminder", "/api/profile/import", "/api/factory-reset", "/api/tft/sysinfo",
+                           "/api/macros"):
+            if self.path == "/api/macros":
+                res = controller.save_macros(data.get("macros", []))
+            elif self.path == "/api/tft/sysinfo":
                 res = controller.set_screen_info(data.get("enabled", False))
             elif self.path == "/api/sit-reminder":
                 res = controller.set_sit_reminder(data.get("minutes", 0))
@@ -1237,7 +1345,7 @@ class AppHandler(http.server.SimpleHTTPRequestHandler):
             return
         elif self.path == "/api/remap":
             res = controller.remap_key(data.get("keyIndex", 0), data.get("kind", "key"), data.get("code", 0),
-                                       data.get("label"))
+                                       data.get("label"), data)
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()

@@ -2,6 +2,7 @@
 import { LeobogDriver } from "./driver.js";
 import { KEYBOARD_KEYS, LIGHT_MODES, KEY_REMAP_CATEGORIES } from "./layout.js";
 import { LedMatrixEditor } from "./ledmatrix.js";
+import { MacroEditor } from "./macro.js";
 
 class AppUI {
   constructor() {
@@ -20,6 +21,7 @@ class AppUI {
     this.initClock();
     this.attachEvents();
     this.ledMatrix = new LedMatrixEditor(this);
+    this.macroEditor = new MacroEditor(this);
     this.initKeyColorControls();
     this.initSettingsControls();
     this.initProfileControls();
@@ -334,6 +336,7 @@ class AppUI {
         if (name) this.keyRemapCache[keyIndex] = name;
       });
       this.applySettingsToUI(data.settings || {});
+      this.macroEditor.setMacros(data.macros);
       document.getElementById("sitReminder").value = String(data.sitReminder || 0);
       document.getElementById("tftSlot").value = String(data.tftSlot || 1);
       document.getElementById("chkTftSysInfo").checked = !!data.tftSysInfo;
