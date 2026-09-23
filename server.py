@@ -13,6 +13,9 @@ import ctypes.util
 import subprocess
 import threading
 import re
+import secrets
+import hmac
+import shutil
 
 try:
     import hid
@@ -30,11 +33,15 @@ PORT = 8080
 
 if getattr(sys, "frozen", False):  # inside the .app bundle
     DIRECTORY = sys._MEIPASS
-    CONFIG_DIR = os.path.expanduser("~/Library/Application Support/LEOBOG AMG65 Studio")
-    os.makedirs(CONFIG_DIR, exist_ok=True)
 else:
     DIRECTORY = os.path.dirname(os.path.abspath(__file__))
-    CONFIG_DIR = DIRECTORY
+# Shared by the .app and dev runs: the keymap is write-only on the keyboard, so two
+# diverging configs would let one of them wipe the other's remaps
+CONFIG_DIR = os.path.expanduser("~/Library/Application Support/LEOBOG AMG65 Studio")
+os.makedirs(CONFIG_DIR, exist_ok=True)
+
+# Every /api call must carry this; it only reaches the page we serve ourselves
+API_TOKEN = secrets.token_urlsafe(24)
 
 VENDOR_ID = 0x0C45   # SONiX
 PRODUCT_ID = 0x800A  # LEOBOG AMG65
@@ -154,6 +161,8 @@ def dock_badges():
         err = proc.stderr.strip()
         if "assistive access" in err or "1719" in err:
             raise RuntimeError("Chua cap quyen Tro nang (Accessibility) cho ung dung chay server")
+        if "1743" in err or "Not authorized" in err:
+            raise RuntimeError("Chua cho phep dieu khien System Events (Cai dat > Quyen rieng tu > Tu dong hoa)")
         raise RuntimeError(err.splitlines()[-1] if err else "Khong doc duoc badge tren Dock")
     badges = {}
     for line in proc.stdout.splitlines():
@@ -229,6 +238,7 @@ class LiveLedWorker(threading.Thread):
         self.peak = 1.0
         self.prev_badges = None
         self.flash_ticks = 0
+        self.error = None
 
     def cpu_percent(self):
         now = cpu_ticks()
@@ -276,17 +286,19 @@ class LiveLedWorker(threading.Thread):
                 continue
             try:
                 res = self.controller.led_matrix_preview(self.render())
-                if not res.get("success"):
-                    print(f"[led] live {self.mode} stopped: {res.get('error')}")
-                    break
+                self.error = None if res.get("success") else res.get("error")
             except Exception as e:
-                print(f"[led] live {self.mode} stopped: {e}")
-                break
+                self.error = str(e)
+            if self.error:
+                print(f"[led] live {self.mode}: {self.error}")
             # reading Dock badges spawns osascript, so poll it less often
             self.stop_event.wait(3.0 if self.mode == "notify" else LIVE_INTERVAL)
 
 
 USER_CONFIG_PATH = os.path.join(CONFIG_DIR, "user_config.json")
+LEGACY_CONFIG_PATH = os.path.join(DIRECTORY, "user_config.json")
+if not os.path.exists(USER_CONFIG_PATH) and os.path.exists(LEGACY_CONFIG_PATH):
+    shutil.copy2(LEGACY_CONFIG_PATH, USER_CONFIG_PATH)
 
 # key_index == light_index for every key on this board (from the driver's KeyboardLayout.xml).
 # 74 is the "/" key: our layout has it, the driver's XML omits it.
@@ -379,12 +391,30 @@ def build_macro_blob(macros):
     return blob, n
 
 
+class ConfigError(RuntimeError):
+    pass
+
+
+def read_json_object(path):
+    with open(path) as f:
+        data = json.load(f)
+    if not isinstance(data, dict):
+        raise ValueError("not a JSON object")
+    return data
+
+
 def load_user_config():
-    try:
-        with open(USER_CONFIG_PATH) as f:
-            data = json.load(f)
-    except Exception:
+    # Never fall back to defaults on a bad file: the next remap would wipe the keyboard
+    if not os.path.exists(USER_CONFIG_PATH):
         data = {}
+    else:
+        try:
+            data = read_json_object(USER_CONFIG_PATH)
+        except Exception:
+            try:
+                data = read_json_object(USER_CONFIG_PATH + ".bak")
+            except Exception:
+                raise ConfigError(f"File cau hinh bi hong: {USER_CONFIG_PATH}. Hay nhap lai ho so da xuat.")
     data.setdefault("keymap", {})
     data.setdefault("keyColors", {})
     data.setdefault("settings", dict(DEFAULT_SETTINGS))
@@ -393,8 +423,97 @@ def load_user_config():
 
 
 def save_user_config(data):
-    with open(USER_CONFIG_PATH, "w") as f:
+    tmp = USER_CONFIG_PATH + ".tmp"
+    with open(tmp, "w") as f:
         json.dump(data, f, indent=2)
+        f.flush()
+        os.fsync(f.fileno())
+    if os.path.exists(USER_CONFIG_PATH):
+        shutil.copy2(USER_CONFIG_PATH, USER_CONFIG_PATH + ".bak")
+    os.replace(tmp, USER_CONFIG_PATH)
+
+
+KEY_KINDS = {"key", "modifier", "media", "consumer", "shortcut", "mouse", "disable", "macro"}
+HEX_COLOR = re.compile(r"^#[0-9a-fA-F]{6}$")
+SIT_REMINDER_MINUTES = (0, 30, 45, 60, 90)
+
+
+def checked_int(value, lo, hi, what):
+    if isinstance(value, bool) or not isinstance(value, int) or not lo <= value <= hi:
+        raise ValueError(f"{what} khong hop le: {value!r}")
+    return value
+
+
+def validate_macros(macros):
+    if not isinstance(macros, list) or len(macros) > MACRO_INDEX_SLOTS:
+        raise ValueError("danh sach macro khong hop le")
+    clean, ids = [], set()
+    for m in macros:
+        if not isinstance(m, dict):
+            raise ValueError("macro khong hop le")
+        mid = checked_int(m.get("id"), 1, 2 ** 53, "ma macro")
+        if mid in ids:
+            raise ValueError(f"ma macro bi trung: {mid}")
+        ids.add(mid)
+        events = m.get("events", [])
+        if not isinstance(events, list) or len(events) > 800:
+            raise ValueError("thao tac macro khong hop le")
+        clean_events = []
+        for ev in events:
+            kind = ev.get("t") if isinstance(ev, dict) else None
+            if kind == "delay":
+                clean_events.append({"t": "delay", "ms": checked_int(ev.get("ms"), 0, 0xFFFF, "do tre")})
+            elif kind in ("down", "up"):
+                clean_events.append({"t": kind, "k": checked_int(ev.get("k"), 0, 0xFF, "ma phim")})
+            elif kind in ("mdown", "mup"):
+                clean_events.append({"t": kind, "b": checked_int(ev.get("b"), 0, 0xFF, "nut chuot")})
+            else:
+                raise ValueError(f"loai thao tac khong hop le: {kind!r}")
+        clean.append({"id": mid, "name": str(m.get("name", ""))[:64], "events": clean_events})
+    return clean
+
+
+def validate_profile(profile):
+    """Whitelist every field of an imported profile before anything touches disk or the keyboard."""
+    if not isinstance(profile, dict):
+        raise ValueError("file khong phai ho so cau hinh")
+    out = {}
+    if "keymap" in profile:
+        if not isinstance(profile["keymap"], dict):
+            raise ValueError("gan phim khong hop le")
+        out["keymap"] = {}
+        for slot, entry in profile["keymap"].items():
+            if not str(slot).isdigit() or int(slot) >= REMAP_SLOTS:
+                raise ValueError(f"vi tri phim khong hop le: {slot!r}")
+            if not isinstance(entry, dict) or entry.get("kind") not in KEY_KINDS:
+                raise ValueError(f"gan phim khong hop le o vi tri {slot}")
+            clean = {"kind": entry["kind"], "code": checked_int(entry.get("code", 0), 0, 2 ** 53, "ma"),
+                     "label": str(entry["label"])[:64] if entry.get("label") else None}
+            if "mode" in entry:
+                clean["mode"] = checked_int(entry["mode"], 0, 2, "cach chay macro")
+            if "count" in entry:
+                clean["count"] = checked_int(entry["count"], 0, 255, "so lan lap")
+            out["keymap"][str(int(slot))] = clean
+    if "keyColors" in profile:
+        colors = profile["keyColors"]
+        if not isinstance(colors, dict) or not all(
+                str(k).isdigit() and isinstance(v, str) and HEX_COLOR.match(v) for k, v in colors.items()):
+            raise ValueError("mau tung phim khong hop le")
+        out["keyColors"] = {str(k): v for k, v in colors.items()}
+    if "settings" in profile:
+        settings = profile["settings"]
+        if not isinstance(settings, dict):
+            raise ValueError("cai dat khong hop le")
+        out["settings"] = {k: checked_int(v, 0, 10, k) for k, v in settings.items() if k in DEFAULT_SETTINGS}
+    if "macros" in profile:
+        out["macros"] = validate_macros(profile["macros"])
+    if "tftSlot" in profile:
+        out["tftSlot"] = checked_int(profile["tftSlot"], 1, 5, "o anh")
+    if "sitReminder" in profile:
+        if profile["sitReminder"] not in SIT_REMINDER_MINUTES:
+            raise ValueError("nhac nho khong hop le")
+        out["sitReminder"] = profile["sitReminder"]
+    return out
 
 
 def send_table(h, opcode, table, tag):
@@ -406,7 +525,8 @@ def send_table(h, opcode, table, tag):
     for i in range(8):
         h.write(bytes([0x00]) + bytes(table[i * 64:(i + 1) * 64]))
         h.read(64, timeout_ms=200)
-    send_cmd(h, [0x04, 0x02], tag)
+    if not ack_ok(send_cmd(h, [0x04, 0x02], tag)):
+        raise RuntimeError("Ban phim khong xac nhan luu (04 02)")
     send_cmd(h, [0x04, 0xF0], tag)
 
 
@@ -420,6 +540,7 @@ class ScreenInfoWorker(threading.Thread):
         self.controller = controller
         self.stop_event = threading.Event()
         self.prev_cpu = cpu_ticks()
+        self.error = None
 
     def cpu_percent(self):
         now = cpu_ticks()
@@ -431,9 +552,13 @@ class ScreenInfoWorker(threading.Thread):
 
     def run(self):
         while not self.stop_event.wait(self.INTERVAL):
-            res = self.controller.sync_time(info={"cpu": self.cpu_percent(), "gpu": gpu_percent()})
-            if not res.get("success"):
-                print(f"[screen] info push failed: {res.get('error')}")
+            try:
+                res = self.controller.sync_time(info={"cpu": self.cpu_percent(), "gpu": gpu_percent()})
+                self.error = None if res.get("success") else res.get("error")
+            except Exception as e:
+                self.error = str(e)
+            if self.error:
+                print(f"[screen] info push failed: {self.error}")
 
 
 class SitReminder(threading.Thread):
@@ -450,6 +575,7 @@ class SitReminder(threading.Thread):
         self.stop_event = threading.Event()
         self.active_since = time.time()
         self.last_nag = 0.0
+        self.error = None
 
     def frame(self, lit):
         frame = blank_frame()
@@ -475,16 +601,18 @@ class SitReminder(threading.Thread):
 
     def run(self):
         while not self.stop_event.wait(10):
-            now = time.time()
-            if idle_seconds() >= self.BREAK_SECONDS:
-                self.active_since = now
-                continue
-            if now - self.active_since >= self.minutes * 60 and now - self.last_nag >= self.REPEAT_SECONDS:
-                self.last_nag = now
-                try:
+            try:
+                now = time.time()
+                if idle_seconds() >= self.BREAK_SECONDS:
+                    self.active_since = now
+                    continue
+                if now - self.active_since >= self.minutes * 60 and now - self.last_nag >= self.REPEAT_SECONDS:
+                    self.last_nag = now
                     self.nag()
-                except Exception as e:
-                    print(f"[led] sit reminder failed: {e}")
+                self.error = None
+            except Exception as e:
+                self.error = str(e)
+                print(f"[led] sit reminder failed: {e}")
 
 
 def ack_ok(resp):
@@ -610,34 +738,41 @@ class KeyboardController:
         return {"success": True, "minutes": minutes}
 
     def import_profile(self, profile):
-        """Load an exported profile and push keymap, per-key colours and settings to the keyboard."""
+        """Validate an exported profile, push it to the keyboard, and save it only if every step worked."""
+        try:
+            clean = validate_profile(profile)
+        except ValueError as e:
+            return {"success": False, "error": f"Ho so khong hop le: {e}"}
         cfg = load_user_config()
-        for key in ("keymap", "keyColors", "settings", "tftSlot", "sitReminder", "macros"):
-            if key in profile:
-                cfg[key] = profile[key]
-        save_user_config(cfg)
-        steps = []
-        if cfg["macros"]:
-            steps.append(("macro", self.save_macros(cfg["macros"])))
-        steps += [("gán phím", self.apply_keymap(cfg["keymap"])), ("cài đặt", self.apply_settings(cfg["settings"]))]
+        cfg.update(clean)
+
+        steps = [("macro", self.upload_macros(cfg["macros"])),
+                 ("gan phim", self.apply_keymap(cfg["keymap"], cfg["macros"])),
+                 ("cai dat", self.apply_settings(cfg["settings"], save=False))]
+        # an empty colour table is not sent: we do not know the keyboard's factory colours
         if cfg["keyColors"]:
-            steps.append(("màu từng phím", self.apply_key_colors(cfg["keyColors"])))
+            steps.append(("mau tung phim", self.apply_key_colors(cfg["keyColors"], save=False)))
         failed = [f"{name}: {res.get('error')}" for name, res in steps if not res.get("success")]
         if failed:
             return {"success": False, "error": "; ".join(failed)}
+
+        save_user_config(cfg)
+        self.set_sit_reminder(cfg.get("sitReminder", 0))
+        if "tftSlot" in clean:
+            self.select_tft_slot(clean["tftSlot"])
         return {"success": True}
 
     def factory_reset(self):
         """Keymap and settings back to defaults. Per-key colours are only cleared locally:
         the keyboard's factory colour table is unknown, so we do not overwrite it."""
         self.set_live_layer("off")
+        for res in (self.apply_keymap({}), self.apply_settings(DEFAULT_SETTINGS, save=False)):
+            if not res.get("success"):
+                return res
         cfg = load_user_config()
         cfg.update({"keymap": {}, "keyColors": {}, "settings": dict(DEFAULT_SETTINGS)})
         cfg.pop("ledBrightnessPrev", None)
         save_user_config(cfg)
-        for res in (self.apply_keymap({}), self.apply_settings(DEFAULT_SETTINGS)):
-            if not res.get("success"):
-                return res
         return {"success": True}
 
     def set_live_layer(self, mode):
@@ -670,7 +805,15 @@ class KeyboardController:
         if not self.find_device_path():
             return {"connected": False, "device": None, "battery": None, "charging": False}
         return {"connected": True, "device": "LEOBOG AMG65", "battery": None, "charging": False,
-                "wired": True, "vid": "0x0C45", "pid": "0x800A"}
+                "wired": True, "vid": "0x0C45", "pid": "0x800A", "workers": self.worker_status()}
+
+    def worker_status(self):
+        live, sit, screen = self.live_worker, self.sit_reminder, self.screen_worker
+        return {
+            "live": {"mode": live.mode, "error": live.error} if live else None,
+            "sitReminder": {"minutes": sit.minutes, "error": sit.error} if sit else None,
+            "tftSysInfo": {"error": screen.error} if screen else None,
+        }
 
     def send_screen_info(self, h, slot, info=None):
         """Wired 04 28 packet: clock plus the values the TFT info pages show; [1] picks the image slot."""
@@ -694,11 +837,11 @@ class KeyboardController:
         path = self.find_device_path()
         if not path:
             return {"success": False, "error": "Ban phim chua duoc cam"}
-        if slot is None:
-            slot = load_user_config().get("tftSlot", 1)
         h = hid.device()
         DEVICE_LOCK.acquire()
         try:
+            if slot is None:
+                slot = load_user_config().get("tftSlot", 1)
             h.open_path(path)
             self.send_screen_info(h, slot, info)
             return {"success": True, "slot": slot}
@@ -973,13 +1116,14 @@ class KeyboardController:
         except Exception as e:
             return {"success": False, "error": f"Loi doc file anh: {str(e)}"}
 
-    def apply_keymap(self, keymap):
+    def apply_keymap(self, keymap, macros=None):
         """Send the whole 128-slot remap table; the keyboard cannot read it back, so we always send all of it."""
         path = self.find_device_path()
         if not path:
             return {"success": False, "error": "Ban phim chua duoc cam"}
 
-        macros = load_user_config()["macros"]
+        if macros is None:
+            macros = load_user_config()["macros"]
         table = bytearray(512)
         for index, entry in keymap.items():
             slot = int(index)
@@ -1005,6 +1149,15 @@ class KeyboardController:
                 DEVICE_LOCK.release()
 
     def remap_key(self, key_index, kind, code, label=None, extra=None):
+        try:
+            key_index = checked_int(key_index, 0, REMAP_SLOTS - 1, "vi tri phim")
+            code = checked_int(code, 0, 2 ** 53, "ma phim")
+            if kind not in KEY_KINDS and kind != "default":
+                raise ValueError(f"loai gan phim khong hop le: {kind!r}")
+            if kind == "key" and code == 0:
+                raise ValueError("ma phim rong")
+        except ValueError as e:
+            return {"success": False, "error": str(e)}
         cfg = load_user_config()
         if kind == "default":
             cfg["keymap"].pop(str(key_index), None)
@@ -1017,9 +1170,8 @@ class KeyboardController:
             save_user_config(cfg)
         return res
 
-    def save_macros(self, macros):
-        """Upload every macro (04 19, 04 15 N, N+1 packets, 04 02), then re-send the keymap
-        because deleting a macro shifts the indexes keys point at."""
+    def upload_macros(self, macros):
+        """04 19, 04 15 N, N+1 packets (the driver sends one spare), 04 02."""
         path = self.find_device_path()
         if not path:
             return {"success": False, "error": "Ban phim chua duoc cam"}
@@ -1032,8 +1184,10 @@ class KeyboardController:
         DEVICE_LOCK.acquire()
         try:
             h.open_path(path)
-            send_cmd(h, [0x04, 0x19], "macro")
-            send_cmd(h, [0x04, 0x15, 0, 0, 0, 0, 0, 0, n], "macro")
+            if not ack_ok(send_cmd(h, [0x04, 0x19], "macro")):
+                raise RuntimeError("Ban phim khong vao che do ghi macro (04 19)")
+            if not ack_ok(send_cmd(h, [0x04, 0x15, 0, 0, 0, 0, 0, 0, n], "macro")):
+                raise RuntimeError("Ban phim tu choi du lieu macro (04 15)")
             time.sleep(0.03)
             for i in range(n + 1):
                 h.write(bytes([0x00]) + bytes(blob[i * 64:(i + 1) * 64]))
@@ -1041,7 +1195,9 @@ class KeyboardController:
                 if i == 0 or i == n:
                     print(f"[macro] packet {i + 1}/{n + 1} -> {bytes(resp[:8]).hex(' ') if resp else 'no reply'}")
             time.sleep(0.03)
-            send_cmd(h, [0x04, 0x02], "macro")
+            if not ack_ok(send_cmd(h, [0x04, 0x02], "macro")):
+                raise RuntimeError("Ban phim khong xac nhan luu macro (04 02)")
+            return {"success": True, "packets": n}
         except Exception as e:
             return {"success": False, "error": str(e)}
         finally:
@@ -1050,16 +1206,27 @@ class KeyboardController:
             finally:
                 DEVICE_LOCK.release()
 
-        cfg = load_user_config()
-        cfg["macros"] = macros
-        ids = {m["id"] for m in macros}
-        cfg["keymap"] = {k: v for k, v in cfg["keymap"].items()
-                         if v.get("kind") != "macro" or v.get("code") in ids}
-        save_user_config(cfg)
-        res = self.apply_keymap(cfg["keymap"])
+    def save_macros(self, macros):
+        """Upload every macro, then re-send the keymap because deleting a macro shifts the
+        indexes keys point at; bindings to deleted macros are dropped."""
+        try:
+            macros = validate_macros(macros)
+        except ValueError as e:
+            return {"success": False, "error": str(e)}
+        res = self.upload_macros(macros)
         if not res.get("success"):
             return res
-        return {"success": True, "macros": len(macros), "packets": n}
+
+        cfg = load_user_config()
+        ids = {m["id"] for m in macros}
+        keymap = {k: v for k, v in cfg["keymap"].items() if v.get("kind") != "macro" or v.get("code") in ids}
+        res = self.apply_keymap(keymap, macros)
+        if not res.get("success"):
+            return res
+        cfg["macros"] = macros
+        cfg["keymap"] = keymap
+        save_user_config(cfg)
+        return {"success": True, "macros": len(macros)}
 
     def reset_keymap(self):
         cfg = load_user_config()
@@ -1069,7 +1236,7 @@ class KeyboardController:
             save_user_config(cfg)
         return res
 
-    def apply_key_colors(self, colors):
+    def apply_key_colors(self, colors, save=True):
         """04 23 table: {light_index, R, G, B} at light_index*4."""
         path = self.find_device_path()
         if not path:
@@ -1086,9 +1253,10 @@ class KeyboardController:
         try:
             h.open_path(path)
             send_table(h, 0x23, table, "keyrgb")
-            cfg = load_user_config()
-            cfg["keyColors"] = {str(k): v for k, v in colors.items()}
-            save_user_config(cfg)
+            if save:
+                cfg = load_user_config()
+                cfg["keyColors"] = {str(k): v for k, v in colors.items()}
+                save_user_config(cfg)
             return {"success": True, "keys": len(KEY_INDEXES)}
         except Exception as e:
             return {"success": False, "error": str(e)}
@@ -1135,7 +1303,7 @@ class KeyboardController:
             finally:
                 DEVICE_LOCK.release()
 
-    def apply_settings(self, settings):
+    def apply_settings(self, settings, save=True):
         """04 17 keyboard settings packet."""
         path = self.find_device_path()
         if not path:
@@ -1166,9 +1334,11 @@ class KeyboardController:
             if not ack_ok(send_cmd(h, [0x04, 0x17, 0, 0, 0, 0, 0, 0, 0x01], "settings")):
                 raise RuntimeError("Ban phim tu choi lenh cai dat (04 17)")
             send_cmd(h, pkt, "settings")
-            send_cmd(h, [0x04, 0x02], "settings")
-            cfg["settings"] = merged
-            save_user_config(cfg)
+            if not ack_ok(send_cmd(h, [0x04, 0x02], "settings")):
+                raise RuntimeError("Ban phim khong xac nhan luu cai dat (04 02)")
+            if save:
+                cfg["settings"] = merged
+                save_user_config(cfg)
             return {"success": True, "settings": merged}
         except Exception as e:
             return {"success": False, "error": str(e)}
@@ -1180,27 +1350,70 @@ class KeyboardController:
 
 
 controller = KeyboardController()
-if load_user_config().get("sitReminder"):
-    controller.set_sit_reminder(load_user_config()["sitReminder"])
-if load_user_config().get("tftSysInfo"):
-    controller.set_screen_info(True)
+try:
+    _startup_cfg = load_user_config()
+    if _startup_cfg.get("sitReminder"):
+        controller.set_sit_reminder(_startup_cfg["sitReminder"])
+    if _startup_cfg.get("tftSysInfo"):
+        controller.set_screen_info(True)
+except ConfigError as e:
+    print(f"[config] {e}")
 
 class AppHandler(http.server.SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=DIRECTORY, **kwargs)
 
+    # No CORS headers: other sites must not be able to drive the keyboard through the user's browser
     def end_headers(self):
         self.send_header("Cache-Control", "no-store, no-cache, must-revalidate")
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
         super().end_headers()
 
-    def do_OPTIONS(self):
-        self.send_response(200)
+    def send_json(self, code, payload):
+        body = json.dumps(payload).encode("utf-8")
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
         self.end_headers()
+        self.wfile.write(body)
+
+    def host_ok(self):
+        # DNS rebinding: a foreign hostname resolving to 127.0.0.1 still sends its own Host
+        return (self.headers.get("Host") or "").lower() in (f"127.0.0.1:{PORT}", f"localhost:{PORT}")
+
+    def token_ok(self):
+        return hmac.compare_digest(self.headers.get("X-AMG65-Token", ""), API_TOKEN)
+
+    def serve_index(self):
+        with open(os.path.join(DIRECTORY, "index.html"), encoding="utf-8") as f:
+            page = f.read().replace("<head>", f'<head>\n  <meta name="api-token" content="{API_TOKEN}">', 1)
+        body = page.encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def guarded(self, handler):
+        if not self.host_ok():
+            return self.send_json(403, {"success": False, "error": "Forbidden host"})
+        path = self.path.split("?", 1)[0]
+        if path in ("/", "/index.html"):
+            return self.serve_index()
+        if path.startswith("/api/") and not self.token_ok():
+            return self.send_json(403, {"success": False, "error": "Forbidden"})
+        try:
+            return handler()
+        except Exception as e:
+            print(f"[http] {self.command} {self.path} failed: {e}")
+            return self.send_json(500, {"success": False, "error": str(e)})
 
     def do_GET(self):
+        return self.guarded(self.handle_get)
+
+    def do_POST(self):
+        return self.guarded(self.handle_post)
+
+    def handle_get(self):
         if self.path == "/api/status":
             status = controller.get_status()
             self.send_response(200)
@@ -1223,13 +1436,21 @@ class AppHandler(http.server.SimpleHTTPRequestHandler):
             return
         return super().do_GET()
 
-    def do_POST(self):
+    def handle_post(self):
         content_length = int(self.headers.get("Content-Length", 0))
         body = self.rfile.read(content_length).decode("utf-8") if content_length > 0 else "{}"
         try:
             data = json.loads(body)
         except Exception:
             data = {}
+        if not isinstance(data, dict):
+            data = {}
+        required = {"/api/remap": ("keyIndex", "kind", "code"), "/api/macros": ("macros",),
+                    "/api/key-colors": ("colors",), "/api/profile/import": ("profile",),
+                    "/api/led-matrix/upload": ("frames",), "/api/led-matrix/preview": ("pixels",)}
+        missing = [k for k in required.get(self.path, ()) if k not in data]
+        if missing:
+            return self.send_json(400, {"success": False, "error": "Thieu truong: " + ", ".join(missing)})
 
         if self.path == "/api/sync-time":
             res = controller.select_tft_slot(data["slot"]) if data.get("slot") else controller.sync_time()
@@ -1308,7 +1529,7 @@ class AppHandler(http.server.SimpleHTTPRequestHandler):
         elif self.path in ("/api/sit-reminder", "/api/profile/import", "/api/factory-reset", "/api/tft/sysinfo",
                            "/api/macros"):
             if self.path == "/api/macros":
-                res = controller.save_macros(data.get("macros", []))
+                res = controller.save_macros(data["macros"])
             elif self.path == "/api/tft/sysinfo":
                 res = controller.set_screen_info(data.get("enabled", False))
             elif self.path == "/api/sit-reminder":
@@ -1330,7 +1551,7 @@ class AppHandler(http.server.SimpleHTTPRequestHandler):
             self.wfile.write(json.dumps(res).encode("utf-8"))
             return
         elif self.path == "/api/key-colors":
-            res = controller.apply_key_colors(data.get("colors", {}))
+            res = controller.apply_key_colors(data["colors"])
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
@@ -1344,8 +1565,7 @@ class AppHandler(http.server.SimpleHTTPRequestHandler):
             self.wfile.write(json.dumps(res).encode("utf-8"))
             return
         elif self.path == "/api/remap":
-            res = controller.remap_key(data.get("keyIndex", 0), data.get("kind", "key"), data.get("code", 0),
-                                       data.get("label"), data)
+            res = controller.remap_key(data["keyIndex"], data["kind"], data["code"], data.get("label"), data)
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
@@ -1359,7 +1579,10 @@ httpd = None
 
 
 def shutdown():
-    controller.set_live_layer("off")
+    for worker in (controller.live_worker, controller.sit_reminder, controller.screen_worker):
+        if worker:
+            worker.stop_event.set()
+    controller.live_worker = controller.sit_reminder = controller.screen_worker = None
     if httpd:
         httpd.shutdown()
 

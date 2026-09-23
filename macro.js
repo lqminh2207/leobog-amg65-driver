@@ -38,6 +38,7 @@ export class MacroEditor {
     this.current = -1;
     this.recording = false;
     this.lastEventAt = 0;
+    this.held = new Set();
     this.$ = id => document.getElementById(id);
 
     this.onKey = this.onKey.bind(this);
@@ -76,12 +77,14 @@ export class MacroEditor {
     $("btnMacroNew").addEventListener("click", () => {
       const name = prompt("Tên macro:", `Macro ${this.macros.length + 1}`);
       if (!name) return;
-      const id = this.macros.reduce((max, m) => Math.max(max, m.id), 0) + 1;
+      this.stopRecording();
+      const id = Math.max(Date.now(), this.macros.reduce((max, m) => Math.max(max, m.id), 0) + 1);
       this.macros.push({ id, name, events: [] });
       this.current = this.macros.length - 1;
       this.render();
     });
     $("btnMacroRename").addEventListener("click", () => {
+      this.stopRecording();
       if (!this.macro) return;
       const name = prompt("Tên mới:", this.macro.name);
       if (name) {
@@ -90,6 +93,7 @@ export class MacroEditor {
       }
     });
     $("btnMacroDelete").addEventListener("click", () => {
+      this.stopRecording();
       if (!this.macro || !confirm(`Xoá macro "${this.macro.name}"? Phím đang gán macro này sẽ bị gỡ khi lưu.`)) return;
       this.macros.splice(this.current, 1);
       this.current = Math.min(this.current, this.macros.length - 1);
@@ -169,6 +173,7 @@ export class MacroEditor {
     }
     this.recording = true;
     this.lastEventAt = 0;
+    this.held.clear();
     window.addEventListener("keydown", this.onKey, true);
     window.addEventListener("keyup", this.onKey, true);
     this.render();
@@ -176,19 +181,16 @@ export class MacroEditor {
 
   stopRecording() {
     if (!this.recording) return;
+    // keys still down when recording ends would stay stuck on playback
+    if (this.macro) this.held.forEach(k => this.macro.events.push({ t: "up", k }));
+    this.held.clear();
     this.recording = false;
     window.removeEventListener("keydown", this.onKey, true);
     window.removeEventListener("keyup", this.onKey, true);
     this.render();
   }
 
-  onKey(e) {
-    e.preventDefault();
-    e.stopPropagation();
-    if (e.repeat) return;
-    const usage = CODE_TO_USAGE[e.code];
-    if (usage === undefined) return;
-
+  pushWithDelay(event) {
     const now = performance.now();
     const mode = this.$("macroDelayMode").value;
     if (this.lastEventAt && mode !== "none") {
@@ -198,7 +200,34 @@ export class MacroEditor {
       this.macro.events.push({ t: "delay", ms });
     }
     this.lastEventAt = now;
-    this.macro.events.push({ t: e.type === "keydown" ? "down" : "up", k: usage });
+    this.macro.events.push(event);
+  }
+
+  onKey(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!this.macro) return this.stopRecording();
+    if (e.repeat) return;
+    const usage = CODE_TO_USAGE[e.code];
+    if (usage === undefined) return;
+
+    if (e.type === "keydown") {
+      this.held.add(usage);
+      this.pushWithDelay({ t: "down", k: usage });
+    } else {
+      // macOS sends no keyup for keys released while Cmd is held; release them with Cmd
+      if (usage === 0xe3 || usage === 0xe7) {
+        this.held.forEach(k => {
+          if (k !== usage && !(k >= 0xe0 && k <= 0xe7)) {
+            this.pushWithDelay({ t: "up", k });
+            this.held.delete(k);
+          }
+        });
+      }
+      if (!this.held.has(usage)) return;
+      this.held.delete(usage);
+      this.pushWithDelay({ t: "up", k: usage });
+    }
     this.renderEvents();
   }
 
@@ -216,9 +245,25 @@ export class MacroEditor {
   renderEvents() {
     const list = this.$("macroEvents");
     const events = this.macro ? this.macro.events : [];
-    list.innerHTML = events.length
-      ? events.map((ev, i) => `<li><span>${this.describe(ev)}</span><button class="macro-remove" data-remove="${i}" title="Xoá">×</button></li>`).join("")
-      : `<li class="macro-empty">${this.macro ? "Chưa có thao tác nào. Bấm Ghi rồi gõ phím." : "Chưa có macro. Bấm + Tạo macro."}</li>`;
+    const rows = events.map((ev, i) => {
+      const li = document.createElement("li");
+      const text = document.createElement("span");
+      text.textContent = this.describe(ev);
+      const remove = document.createElement("button");
+      remove.className = "macro-remove";
+      remove.dataset.remove = String(i);
+      remove.title = "Xoá";
+      remove.textContent = "×";
+      li.append(text, remove);
+      return li;
+    });
+    if (!rows.length) {
+      const empty = document.createElement("li");
+      empty.className = "macro-empty";
+      empty.textContent = this.macro ? "Chưa có thao tác nào. Bấm Ghi rồi gõ phím." : "Chưa có macro. Bấm + Tạo macro.";
+      rows.push(empty);
+    }
+    list.replaceChildren(...rows);
     list.scrollTop = list.scrollHeight;
   }
 

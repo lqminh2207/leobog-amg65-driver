@@ -20,4 +20,10 @@ pyinstaller --noconfirm --clean --windowed \
   --add-binary "libusbflash.dylib:." \
   app_main.py
 
+# Notification layer asks System Events for Dock badges; without this key macOS denies it silently
+PLIST="dist/LEOBOG AMG65 Studio.app/Contents/Info.plist"
+plutil -replace NSAppleEventsUsageDescription -string \
+  "Đọc số thông báo trên Dock để hiển thị lên màn LED của bàn phím." "$PLIST"
+codesign --force --deep --sign - "dist/LEOBOG AMG65 Studio.app"
+
 echo "Xong: dist/LEOBOG AMG65 Studio.app"

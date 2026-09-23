@@ -1,6 +1,14 @@
 // LEOBOG AMG65 Driver Bridge for macOS
 // Bridges both local native USB driver (zero-permission) and WebHID API
 
+// The server injects a per-launch token into the page; /api rejects requests without it
+const API_TOKEN = document.querySelector('meta[name="api-token"]')?.content || "";
+
+export function apiFetch(url, options = {}) {
+  const headers = { ...(options.headers || {}), "X-AMG65-Token": API_TOKEN };
+  return fetch(url, { ...options, headers });
+}
+
 export class LeobogDriver {
   constructor() {
     this.isConnected = false;
@@ -23,7 +31,7 @@ export class LeobogDriver {
 
   async startBackendPolling() {
     try {
-      const res = await fetch("/api/status");
+      const res = await apiFetch("/api/status");
       if (res.ok) {
         const data = await res.json();
         if (data.connected) {
@@ -52,7 +60,7 @@ export class LeobogDriver {
   async connect() {
     this.log("Đang kiểm tra kết nối với bàn phím...", "info");
     try {
-      const res = await fetch("/api/status");
+      const res = await apiFetch("/api/status");
       if (res.ok) {
         const data = await res.json();
         if (data.connected) {
@@ -110,7 +118,7 @@ export class LeobogDriver {
   async syncTime() {
     this.log("Đang đồng bộ giờ máy Mac vào màn hình LCD bàn phím...", "info");
     if (this.useNativeBackend) {
-      const res = await fetch("/api/sync-time", { method: "POST" });
+      const res = await apiFetch("/api/sync-time", { method: "POST" });
       const data = await res.json();
       if (data.success) {
         const now = new Date();
@@ -125,7 +133,7 @@ export class LeobogDriver {
   async setLighting({ mode = 1, brightness = 4, speed = 3, r = 0, g = 255, b = 255, isRainbow = true }) {
     this.log(`Đang áp dụng hiệu ứng LED Mode ${mode}...`, "info");
     if (this.useNativeBackend) {
-      const res = await fetch("/api/lighting", {
+      const res = await apiFetch("/api/lighting", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ mode, brightness, speed, r, g, b, isRainbow })
@@ -151,7 +159,7 @@ export class LeobogDriver {
   async uploadLcdImage(base64Data, slot = 1) {
     this.log("Đang xử lý và truyền dữ liệu tới bộ nhớ Flash của màn hình...", "info");
     if (this.useNativeBackend) {
-      const res = await fetch("/api/upload-lcd", {
+      const res = await apiFetch("/api/upload-lcd", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ image: base64Data, slot })
@@ -168,7 +176,7 @@ export class LeobogDriver {
   }
 
   async postJson(url, body) {
-    const res = await fetch(url, {
+    const res = await apiFetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body)
@@ -229,7 +237,7 @@ export class LeobogDriver {
   }
 
   async readKeyColors() {
-    const res = await fetch("/api/key-colors");
+    const res = await apiFetch("/api/key-colors");
     const data = await res.json();
     if (!data.success) throw new Error(data.error || "Không đọc được màu");
     return data.colors;

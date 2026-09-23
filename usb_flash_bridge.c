@@ -135,8 +135,11 @@ int leobog_flash_write_block(const uint8_t *block) {
     if (!block) return -10;
 
     IOReturn kr = (*g_intf)->WritePipeTO(g_intf, 1, (void*)block, FLASH_BLOCK_SIZE, 2000, 2000);
-    if (kr != kIOReturnSuccess) {
+    // Untimed WritePipe only when the timed call is unsupported; after a timeout it would block forever
+    if (kr == kIOReturnUnsupported || kr == kIOReturnBadArgument) {
         kr = (*g_intf)->WritePipe(g_intf, 1, (void*)block, FLASH_BLOCK_SIZE);
+    } else if (kr != kIOReturnSuccess) {
+        (*g_intf)->ClearPipeStallBothEnds(g_intf, 1);
     }
     if (kr != kIOReturnSuccess) {
         fprintf(stderr, "WritePipe failed with error 0x%08x\n", kr);

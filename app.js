@@ -1,5 +1,5 @@
 // LEOBOG AMG65 Studio - Application Logic
-import { LeobogDriver } from "./driver.js";
+import { LeobogDriver, apiFetch } from "./driver.js";
 import { KEYBOARD_KEYS, LIGHT_MODES, KEY_REMAP_CATEGORIES } from "./layout.js";
 import { LedMatrixEditor } from "./ledmatrix.js";
 import { MacroEditor } from "./macro.js";
@@ -26,6 +26,7 @@ class AppUI {
     this.initSettingsControls();
     this.initProfileControls();
     this.initTftControls();
+    this.watchWorkers();
     this.loadUserConfig();
 
     // Try auto-connecting on start
@@ -122,10 +123,16 @@ class AppUI {
       const label = this.keyRemapCache[k.key_index] || k.name;
       const fnLabel = k.fn ? `Fn: ${k.fn}` : "";
 
-      keyEl.innerHTML = `
-        <span class="key-primary">${label}</span>
-        ${fnLabel ? `<span class="key-secondary">${fnLabel}</span>` : ""}
-      `;
+      const primary = document.createElement("span");
+      primary.className = "key-primary";
+      primary.textContent = label;
+      keyEl.appendChild(primary);
+      if (fnLabel) {
+        const secondary = document.createElement("span");
+        secondary.className = "key-secondary";
+        secondary.textContent = fnLabel;
+        keyEl.appendChild(secondary);
+      }
 
       keyEl.addEventListener("click", () => {
         if (this.paintMode) this.paintKey(k);
@@ -326,7 +333,7 @@ class AppUI {
 
   async loadUserConfig() {
     try {
-      const res = await fetch("/api/user-config");
+      const res = await apiFetch("/api/user-config");
       const data = await res.json();
       this.keyColors = data.keyColors || {};
       Object.entries(data.keymap || {}).forEach(([keyIndex, entry]) => {
@@ -476,6 +483,28 @@ class AppUI {
     });
   }
 
+  watchWorkers() {
+    const reported = {};
+    const report = (key, error, label) => {
+      if (error && reported[key] !== error) this.showToast(`${label}: ${error}`, "error");
+      reported[key] = error || null;
+    };
+    setInterval(async () => {
+      try {
+        const status = await (await apiFetch("/api/status")).json();
+        const workers = status.workers || {};
+        const live = workers.live;
+        const liveStatus = document.getElementById("ledLiveStatus");
+        if (live && live.error) liveStatus.textContent = "Lỗi: " + live.error;
+        report("live", live && live.error, "Lớp LED trực tiếp");
+        report("sit", workers.sitReminder && workers.sitReminder.error, "Nhắc nhở ngồi lâu");
+        report("tft", workers.tftSysInfo && workers.tftSysInfo.error, "Gửi CPU/GPU lên màn hình");
+      } catch (e) {
+        // server restarting; the next tick retries
+      }
+    }, 5000);
+  }
+
   initProfileControls() {
     const status = document.getElementById("profileStatus");
     const fail = err => {
@@ -494,14 +523,20 @@ class AppUI {
 
     document.getElementById("btnExportProfile").addEventListener("click", async () => {
       try {
-        const data = await (await fetch("/api/user-config")).json();
+        const data = await (await apiFetch("/api/user-config")).json();
         const { success, ...profile } = data;
-        const blob = new Blob([JSON.stringify(profile, null, 2)], { type: "application/json" });
+        const text = JSON.stringify(profile, null, 2);
+        const filename = `amg65-profile-${new Date().toISOString().slice(0, 10)}.json`;
+        if (window.pywebview?.api?.save_text) {
+          const saved = await window.pywebview.api.save_text(filename, text);
+          status.textContent = saved ? `Đã lưu hồ sơ vào ${saved}` : "Đã huỷ.";
+          return;
+        }
         const link = document.createElement("a");
-        link.href = URL.createObjectURL(blob);
-        link.download = `amg65-profile-${new Date().toISOString().slice(0, 10)}.json`;
+        link.href = URL.createObjectURL(new Blob([text], { type: "application/json" }));
+        link.download = filename;
         link.click();
-        URL.revokeObjectURL(link.href);
+        setTimeout(() => URL.revokeObjectURL(link.href), 5000);
         status.textContent = "Đã xuất hồ sơ cấu hình.";
       } catch (err) {
         fail(err);
@@ -545,6 +580,8 @@ class AppUI {
     const tabBtns = document.querySelectorAll(".tab-btn");
     tabBtns.forEach(btn => {
       btn.addEventListener("click", () => {
+        // the recorder swallows every key app-wide, so it must not outlive its tab
+        if (this.macroEditor) this.macroEditor.stopRecording();
         tabBtns.forEach(b => b.classList.remove("active"));
         document.querySelectorAll(".tab-pane").forEach(p => p.classList.remove("active"));
 
