@@ -1,6 +1,7 @@
 // LEOBOG AMG65 Studio - Application Logic
 import { LeobogDriver } from "./driver.js";
 import { KEYBOARD_KEYS, LIGHT_MODES, KEY_REMAP_CATEGORIES } from "./layout.js";
+import { LedMatrixEditor } from "./ledmatrix.js";
 
 class AppUI {
   constructor() {
@@ -16,6 +17,7 @@ class AppUI {
     this.initTabs();
     this.initClock();
     this.attachEvents();
+    this.ledMatrix = new LedMatrixEditor(this);
 
     // Try auto-connecting on start
     this.driver.autoConnect();

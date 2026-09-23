@@ -159,6 +159,39 @@ export class LeobogDriver {
     throw new Error("Chưa kết nối tới bàn phím");
   }
 
+  async postJson(url, body) {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error || "Lỗi không xác định");
+    return data;
+  }
+
+  async ledMatrixPreview(pixels) {
+    if (!this.useNativeBackend) throw new Error("Chưa kết nối tới bàn phím");
+    return this.postJson("/api/led-matrix/preview", { pixels });
+  }
+
+  async ledMatrixUpload({ frames, speed, brightness, target }) {
+    if (!this.useNativeBackend) throw new Error("Chưa kết nối tới bàn phím");
+    this.log(`Đang nạp ${frames.length} khung hình vào màn LED ma trận...`, "info");
+    const data = await this.postJson("/api/led-matrix/upload", { frames, speed, brightness, target });
+    this.log(`Đã nạp ${data.frames} khung hình (${data.blocks} blocks) vào màn LED!`, "success");
+    return data;
+  }
+
+  async ledMatrixLive(mode) {
+    if (!this.useNativeBackend) throw new Error("Chưa kết nối tới bàn phím");
+    return this.postJson("/api/led-matrix/live", { mode });
+  }
+
+  async ledMatrixImport(image) {
+    return this.postJson("/api/led-matrix/import", { image });
+  }
+
   async remapKey(keyIndex, newKeyCode) {
     this.log(`Đang gán phím (Index ${keyIndex} -> 0x${newKeyCode.toString(16)})...`, "info");
     if (this.useNativeBackend) {

@@ -812,3 +812,64 @@ input[type="range"]::-webkit-slider-thumb:hover {
   opacity: 1;
   transform: translateY(0);
 }
+
+/* LED Matrix editor */
+.led-hint {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+
+.led-canvas-wrap {
+  background: #05070a;
+  border: 1px solid var(--surface-glass-border);
+  border-radius: var(--radius-md);
+  padding: 12px;
+  overflow-x: auto;
+}
+
+.led-canvas {
+  display: block;
+  width: 100%;
+  min-width: 630px;
+  cursor: crosshair;
+  image-rendering: pixelated;
+  touch-action: none;
+}
+
+.led-toolbar,
+.led-frames,
+.led-tool-group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.led-toolbar input[type="color"] {
+  width: 40px;
+  height: 40px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.led-tool.active {
+  border-color: var(--accent-cyan);
+  color: var(--accent-cyan);
+}
+
+.led-frame-label {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--text-secondary);
+  min-width: 110px;
+  text-align: center;
+}
+
+.led-status {
+  font-size: 12px;
+  color: var(--text-secondary);
+  min-height: 18px;
+}
