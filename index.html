@@ -266,6 +266,11 @@
             Giờ Mac hiện tại: <span id="currentMacTimeText">--:--:--</span>
           </div>
 
+          <label class="setting-item">
+            <input type="checkbox" id="chkTftSysInfo">
+            Gửi CPU / GPU đang dùng lên màn hình (cập nhật mỗi 2 giây, khi app đang mở)
+          </label>
+
           <button class="btn btn-sync" id="btnSyncTimeBig">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"></path>
@@ -325,6 +330,15 @@
                 <span style="font-size: 11px; padding: 3px 8px; border-radius: 4px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); color: var(--text-secondary);" id="statDimensions">Kích thước: -</span>
                 <span style="font-size: 11px; padding: 3px 8px; border-radius: 4px; background: rgba(0,255,180,0.1); border: 1px solid rgba(0,255,180,0.2); color: #00ffb4;" id="statType">Loại: -</span>
                 <span style="font-size: 11px; padding: 3px 8px; border-radius: 4px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); color: var(--text-secondary);" id="statSize">Dung lượng: -</span>
+              </div>
+
+              <div class="led-toolbar">
+                <span class="slider-label">Ô lưu ảnh</span>
+                <select class="mode-select combo-key" id="tftSlot">
+                  <option value="1">Ô 1</option><option value="2">Ô 2</option><option value="3">Ô 3</option>
+                  <option value="4">Ô 4</option><option value="5">Ô 5</option>
+                </select>
+                <button class="btn btn-secondary" id="btnShowTftSlot">Hiển thị ô này</button>
               </div>
 
               <!-- Upload Button -->

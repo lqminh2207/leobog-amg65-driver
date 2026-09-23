@@ -23,6 +23,7 @@ class AppUI {
     this.initKeyColorControls();
     this.initSettingsControls();
     this.initProfileControls();
+    this.initTftControls();
     this.loadUserConfig();
 
     // Try auto-connecting on start
@@ -334,6 +335,8 @@ class AppUI {
       });
       this.applySettingsToUI(data.settings || {});
       document.getElementById("sitReminder").value = String(data.sitReminder || 0);
+      document.getElementById("tftSlot").value = String(data.tftSlot || 1);
+      document.getElementById("chkTftSysInfo").checked = !!data.tftSysInfo;
       this.updateKeyboardDisplay();
     } catch (e) {
       // first run: no saved config yet
@@ -444,6 +447,27 @@ class AppUI {
         this.showToast("Đã lưu cài đặt vào bàn phím!", "success");
       } catch (err) {
         status.textContent = "Lỗi: " + err.message;
+        this.showToast("Lỗi: " + err.message, "error");
+      }
+    });
+  }
+
+  initTftControls() {
+    document.getElementById("btnShowTftSlot").addEventListener("click", async () => {
+      const slot = Number(document.getElementById("tftSlot").value);
+      try {
+        await this.driver.selectTftSlot(slot);
+        this.showToast(`Màn hình đang hiển thị ô ${slot}.`, "success");
+      } catch (err) {
+        this.showToast("Lỗi: " + err.message, "error");
+      }
+    });
+    document.getElementById("chkTftSysInfo").addEventListener("change", async e => {
+      try {
+        await this.driver.setTftSysInfo(e.target.checked);
+        this.showToast(e.target.checked ? "Đang gửi CPU/GPU lên màn hình." : "Đã dừng gửi CPU/GPU.", "success");
+      } catch (err) {
+        e.target.checked = !e.target.checked;
         this.showToast("Lỗi: " + err.message, "error");
       }
     });
@@ -700,7 +724,7 @@ class AppUI {
           }
         }, 150);
 
-        const res = await this.driver.uploadLcdImage(this.currentLcdImageDataUrl);
+        const res = await this.driver.uploadLcdImage(this.currentLcdImageDataUrl, Number(document.getElementById("tftSlot").value));
         clearInterval(interval);
 
         lcdProgressBar.style.width = "100%";

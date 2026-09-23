@@ -139,14 +139,22 @@ export class LeobogDriver {
     throw new Error("Không thể đổi hiệu ứng LED");
   }
 
-  // Remap key
-    async uploadLcdImage(base64Data) {
+  async selectTftSlot(slot) {
+    if (!this.useNativeBackend) throw new Error("Chưa kết nối tới bàn phím");
+    return this.postJson("/api/sync-time", { slot });
+  }
+
+  async setTftSysInfo(enabled) {
+    return this.postJson("/api/tft/sysinfo", { enabled });
+  }
+
+  async uploadLcdImage(base64Data, slot = 1) {
     this.log("Đang xử lý và truyền dữ liệu tới bộ nhớ Flash của màn hình...", "info");
     if (this.useNativeBackend) {
       const res = await fetch("/api/upload-lcd", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ image: base64Data })
+        body: JSON.stringify({ image: base64Data, slot })
       });
       const data = await res.json();
       if (data.success) {

@@ -356,6 +356,32 @@ def send_table(h, opcode, table, tag):
     send_cmd(h, [0x04, 0xF0], tag)
 
 
+class ScreenInfoWorker(threading.Thread):
+    """Re-sends the 04 28 packet so the TFT info page shows live CPU/GPU load."""
+
+    INTERVAL = 2.0  # the Windows app refreshes CPU/GPU every 2 s
+
+    def __init__(self, controller):
+        super().__init__(daemon=True)
+        self.controller = controller
+        self.stop_event = threading.Event()
+        self.prev_cpu = cpu_ticks()
+
+    def cpu_percent(self):
+        now = cpu_ticks()
+        if not now or not self.prev_cpu:
+            return 0
+        busy, idle = now[0] - self.prev_cpu[0], now[1] - self.prev_cpu[1]
+        self.prev_cpu = now
+        return round(100.0 * busy / (busy + idle)) if busy + idle else 0
+
+    def run(self):
+        while not self.stop_event.wait(self.INTERVAL):
+            res = self.controller.sync_time(info={"cpu": self.cpu_percent(), "gpu": gpu_percent()})
+            if not res.get("success"):
+                print(f"[screen] info push failed: {res.get('error')}")
+
+
 class SitReminder(threading.Thread):
     """Nags on the LED matrix after `minutes` of continuous use; a 5-minute break resets the timer."""
 
@@ -493,6 +519,28 @@ class KeyboardController:
         self.live_worker = None
         self.sit_reminder = None
         self.reminding = False
+        self.screen_worker = None
+
+    def set_screen_info(self, enabled):
+        if self.screen_worker:
+            self.screen_worker.stop_event.set()
+            self.screen_worker = None
+        if enabled:
+            self.screen_worker = ScreenInfoWorker(self)
+            self.screen_worker.start()
+        cfg = load_user_config()
+        cfg["tftSysInfo"] = bool(enabled)
+        save_user_config(cfg)
+        return {"success": True, "enabled": bool(enabled)}
+
+    def select_tft_slot(self, slot):
+        slot = max(1, min(5, int(slot)))
+        res = self.sync_time(slot=slot)
+        if res.get("success"):
+            cfg = load_user_config()
+            cfg["tftSlot"] = slot
+            save_user_config(cfg)
+        return res
 
     def set_sit_reminder(self, minutes):
         minutes = int(minutes or 0)
@@ -669,6 +717,7 @@ class KeyboardController:
                 DEVICE_LOCK.release()
 
     def upload_lcd_image(self, data_url, slot=1):
+        slot = max(1, min(5, int(slot)))
         path = self.find_device_path()
         if not path:
             return {"success": False, "error": "Ban phim chua duoc cam"}
@@ -1028,6 +1077,8 @@ class KeyboardController:
 controller = KeyboardController()
 if load_user_config().get("sitReminder"):
     controller.set_sit_reminder(load_user_config()["sitReminder"])
+if load_user_config().get("tftSysInfo"):
+    controller.set_screen_info(True)
 
 class AppHandler(http.server.SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
@@ -1076,7 +1127,7 @@ class AppHandler(http.server.SimpleHTTPRequestHandler):
             data = {}
 
         if self.path == "/api/sync-time":
-            res = controller.sync_time()
+            res = controller.select_tft_slot(data["slot"]) if data.get("slot") else controller.sync_time()
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
@@ -1104,7 +1155,7 @@ class AppHandler(http.server.SimpleHTTPRequestHandler):
                 self.end_headers()
                 self.wfile.write(json.dumps({"success": False, "error": "Khong co du lieu anh"}).encode("utf-8"))
                 return
-            res = controller.upload_lcd_image(image_data)
+            res = controller.upload_lcd_image(image_data, data.get("slot", 1))
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
@@ -1149,8 +1200,10 @@ class AppHandler(http.server.SimpleHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(json.dumps(res).encode("utf-8"))
             return
-        elif self.path in ("/api/sit-reminder", "/api/profile/import", "/api/factory-reset"):
-            if self.path == "/api/sit-reminder":
+        elif self.path in ("/api/sit-reminder", "/api/profile/import", "/api/factory-reset", "/api/tft/sysinfo"):
+            if self.path == "/api/tft/sysinfo":
+                res = controller.set_screen_info(data.get("enabled", False))
+            elif self.path == "/api/sit-reminder":
                 res = controller.set_sit_reminder(data.get("minutes", 0))
             elif self.path == "/api/profile/import":
                 res = controller.import_profile(data.get("profile", {}))
