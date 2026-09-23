@@ -31,7 +31,7 @@ export class LeobogDriver {
           this.isConnected = true;
           this.battery = data.battery;
           this.isCharging = data.charging;
-          this.log(`Đã kết nối trực tiếp với ${data.device} qua Native Driver (Pin: ${this.battery}%)!`, "success");
+          this.log(`Đã kết nối trực tiếp với ${data.device} qua Native Driver!`, "success");
           if (this.onStatusChange) this.onStatusChange(true, data);
           if (this.onBatteryUpdate) this.onBatteryUpdate(this.battery, this.isCharging);
           return;
@@ -227,20 +227,4 @@ export class LeobogDriver {
     return this.postJson("/api/settings", { settings });
   }
 
-  async readConfig() {
-    if (this.useNativeBackend) {
-      const res = await fetch("/api/config");
-      const data = await res.json();
-      if (data.success) {
-        this.log("Đã đọc cấu hình phím thành công từ bộ nhớ bàn phím.", "success");
-        return data.config;
-      }
-    }
-    return null;
-  }
-
-  async saveConfig() {
-    this.log("Cấu hình phím đã được lưu tự động!", "success");
-    return true;
-  }
 }

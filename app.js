@@ -456,14 +456,18 @@ class AppUI {
       }
     };
 
+    // Wired mode has no battery read-back, so percent is null there
     this.driver.onBatteryUpdate = (percent, charging) => {
-      this.batteryText.textContent = `${percent}%`;
-      this.batteryFill.style.width = `${percent}%`;
-      if (this.lcdBatteryText) this.lcdBatteryText.textContent = `${percent}%`;
-      
+      const label = percent == null ? "USB" : `${percent}%`;
+      this.batteryText.textContent = label;
+      this.batteryFill.style.width = percent == null ? "100%" : `${percent}%`;
+      if (this.lcdBatteryText) this.lcdBatteryText.textContent = label;
+
       const infoCharging = document.getElementById("infoChargingStatus");
       if (infoCharging) {
-        infoCharging.textContent = charging ? `Đang sạc qua cáp USB (${percent}%)` : `Dùng pin (${percent}%)`;
+        infoCharging.textContent = percent == null
+          ? "Đang cắm dây USB (chế độ có dây không đọc được % pin)"
+          : charging ? `Đang sạc qua cáp USB (${percent}%)` : `Dùng pin (${percent}%)`;
       }
     };
 
@@ -623,22 +627,16 @@ class AppUI {
     });
 
     // Config Save & Reload
-    document.getElementById("btnSaveConfig").addEventListener("click", async () => {
-      if (!this.driver.isConnected) {
-        alert("Bàn phím chưa được kết nối!");
-        return;
+    document.getElementById("btnResetKeymap").addEventListener("click", async () => {
+      if (!confirm("Trả tất cả phím đã gán về chức năng gốc?")) return;
+      try {
+        await this.driver.resetKeymap();
+        this.keyRemapCache = {};
+        this.updateKeyboardDisplay();
+        this.showToast("Đã trả tất cả phím về chức năng gốc.", "success");
+      } catch (err) {
+        this.showToast("Lỗi: " + err.message, "error");
       }
-      await this.driver.saveConfig();
-      this.showToast("Đã lưu cấu hình phím thành công vào bộ nhớ!", "success");
-    });
-
-    document.getElementById("btnReloadConfig").addEventListener("click", async () => {
-      if (!this.driver.isConnected) {
-        alert("Bàn phím chưa được kết nối!");
-        return;
-      }
-      await this.driver.readConfig();
-      this.showToast("Đã nạp lại cấu hình gốc từ bàn phím!", "info");
     });
   }
 }

@@ -443,22 +443,43 @@ class KeyboardController:
                 return d["path"]
         return None
 
-    def send_checksum_cmd(self, payload):
+    def get_status(self):
+        # No battery read-back exists on the wired interface; the old 20 01 ping was a dongle packet
+        if not self.find_device_path():
+            return {"connected": False, "device": None, "battery": None, "charging": False}
+        return {"connected": True, "device": "LEOBOG AMG65", "battery": None, "charging": False,
+                "wired": True, "vid": "0x0C45", "pid": "0x800A"}
+
+    def send_screen_info(self, h, slot, info=None):
+        """Wired 04 28 packet: clock plus the values the TFT info pages show; [1] picks the image slot."""
+        info = info or {}
+        now = datetime.datetime.now()
+        pkt = [0] * 64
+        pkt[1] = slot
+        pkt[2] = 0x5A
+        pkt[3:9] = [now.year % 2000, now.month, now.day, now.hour, now.minute, now.second]
+        pkt[10] = (now.weekday() + 1) % 7
+        pkt[13] = max(0, min(100, int(info.get("cpu", 0))))
+        pkt[15] = max(0, min(100, int(info.get("gpu", 0))))
+        send_cmd(h, [0x04, 0x18], "screen")
+        send_cmd(h, [0x04, 0x28, 0, 0, 0, 0, 0, 0, 0x01], "screen")
+        pkt[62] = 0xAA
+        pkt[63] = 0x55
+        send_cmd(h, pkt, "screen")
+        send_cmd(h, [0x04, 0x02], "screen")
+
+    def sync_time(self, slot=None, info=None):
         path = self.find_device_path()
         if not path:
             return {"success": False, "error": "Ban phim chua duoc cam"}
+        if slot is None:
+            slot = load_user_config().get("tftSlot", 1)
         h = hid.device()
         DEVICE_LOCK.acquire()
         try:
             h.open_path(path)
-            buf = [0] * 32
-            for i in range(min(len(payload), 32)):
-                buf[i] = payload[i]
-            checksum = sum(buf[:32]) & 0xFF
-            pkt = [0x00] + buf + [checksum] + [0x00] * 31
-            h.write(bytes(pkt[:65]))
-            resp = h.read(64, timeout_ms=300)
-            return {"success": True, "response": list(resp) if resp else []}
+            self.send_screen_info(h, slot, info)
+            return {"success": True, "slot": slot}
         except Exception as e:
             return {"success": False, "error": str(e)}
         finally:
@@ -466,47 +487,6 @@ class KeyboardController:
                 h.close()
             finally:
                 DEVICE_LOCK.release()
-
-    def get_status(self):
-        path = self.find_device_path()
-        if not path:
-            return {"connected": False, "device": None, "battery": 0, "charging": False}
-        
-        res = self.send_checksum_cmd([0x20, 0x01])
-        if res.get("success") and res.get("response") and len(res["response"]) >= 4:
-            resp = res["response"]
-            raw_bat = resp[3]
-            charging = (raw_bat == 0xFF)
-            battery = 100 if charging else max(0, min(100, raw_bat))
-            return {
-                "connected": True,
-                "device": "LEOBOG AMG65",
-                "battery": battery,
-                "charging": charging,
-                "vid": "0x0C45",
-                "pid": "0x800A"
-            }
-        return {"connected": True, "device": "LEOBOG AMG65", "battery": 100, "charging": True}
-
-    def sync_time(self):
-        now = datetime.datetime.now()
-        buf = [0] * 32
-        buf[0] = 0x0C
-        buf[1] = 0x10
-        buf[2] = 0x00
-        buf[3] = 0x00
-        buf[4] = 0x01
-        buf[5] = 0x5A
-        buf[6] = now.year % 100
-        buf[7] = now.month
-        buf[8] = now.day
-        buf[9] = now.hour
-        buf[10] = now.minute
-        buf[11] = now.second
-        buf[12] = (now.weekday() + 1) % 7
-        buf[18] = 0xAA
-        buf[19] = 0x55
-        return self.send_checksum_cmd(buf)
 
     def set_lighting(self, mode, brightness, speed, r, g, b, is_rainbow):
         path = self.find_device_path()
@@ -545,7 +525,6 @@ class KeyboardController:
                 time.sleep(0.015)
                 return h.read(64, timeout_ms=100)
 
-            # Sequence 1: 0x13 Primary Lighting Protocol
             send_raw([0x04, 0x18])
             send_raw([0x04, 0x13, 0, 0, 0, 0, 0, 0, 1])
             p1 = [0] * 64
@@ -560,25 +539,6 @@ class KeyboardController:
             p1[14] = 0xAA
             p1[15] = 0x55
             send_raw(p1)
-            send_raw([0x04, 0x02])
-            send_raw([0x04, 0xF0])
-
-            # Sequence 2: 0x17 Secondary Global Protocol
-            send_raw([0x04, 0x18])
-            send_raw([0x04, 0x17, m, 0, 0, 0, 0, 0, 1])
-            p2 = [0] * 64
-            p2[0] = 0
-            p2[1] = 1
-            p2[2] = 0
-            p2[5] = rainbow_flag
-            p2[6] = sp
-            p2[7] = br
-            p2[8] = red
-            p2[9] = green
-            p2[10] = blue
-            p2[62] = 0xAA
-            p2[63] = 0x55
-            send_raw(p2)
             send_raw([0x04, 0x02])
             send_raw([0x04, 0xF0])
 
@@ -645,19 +605,11 @@ class KeyboardController:
             h.open_path(path)
             flash_stream(h, [0x04, 0x72, slot, 0, 0, 0, 0, 0], padded_data, "lcd")
 
-            # Select the uploaded slot for display (wired-mode packet, also sets the clock)
-            now = datetime.datetime.now()
-            send_cmd(h, [0x04, 0x18], "lcd")
-            send_cmd(h, [0x04, 0x28, 0, 0, 0, 0, 0, 0, 0x01], "lcd")
-            sel = [0] * 64
-            sel[1] = slot
-            sel[2] = 0x5A
-            sel[3:9] = [now.year % 2000, now.month, now.day, now.hour, now.minute, now.second]
-            sel[10] = (now.weekday() + 1) % 7
-            sel[62] = 0xAA
-            sel[63] = 0x55
-            send_cmd(h, sel, "lcd")
-            send_cmd(h, [0x04, 0x02], "lcd")
+            # Select the uploaded slot for display (also sets the clock)
+            self.send_screen_info(h, slot)
+            cfg = load_user_config()
+            cfg["tftSlot"] = slot
+            save_user_config(cfg)
 
             return {
                 "success": True,
@@ -797,36 +749,6 @@ class KeyboardController:
             return {"success": True, "frames": frames, "delays": delays}
         except Exception as e:
             return {"success": False, "error": f"Loi doc file anh: {str(e)}"}
-
-    def read_config(self):
-        path = self.find_device_path()
-        if not path:
-            return {"success": False, "error": "Ban phim chua duoc cam"}
-        h = hid.device()
-        DEVICE_LOCK.acquire()
-        try:
-            h.open_path(path)
-            full_buf = []
-            for b in range(8):
-                pkt = [0x00] + [0x00] * 64
-                pkt[1] = 0x04
-                pkt[2] = 0xF5
-                pkt[3] = b
-                pkt[9] = 0x08
-                h.write(bytes(pkt[:65]))
-                resp = h.read(64, timeout_ms=300)
-                if resp:
-                    full_buf.extend(resp)
-                else:
-                    full_buf.extend([0] * 64)
-            return {"success": True, "config": full_buf}
-        except Exception as e:
-            return {"success": False, "error": str(e)}
-        finally:
-            try:
-                h.close()
-            finally:
-                DEVICE_LOCK.release()
 
     def apply_keymap(self, keymap):
         """Send the whole 128-slot remap table; the keyboard cannot read it back, so we always send all of it."""
@@ -1019,13 +941,6 @@ class AppHandler(http.server.SimpleHTTPRequestHandler):
             return
         elif self.path == "/api/key-colors":
             res = controller.read_key_colors()
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.end_headers()
-            self.wfile.write(json.dumps(res).encode("utf-8"))
-            return
-        elif self.path == "/api/config":
-            res = controller.read_config()
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
