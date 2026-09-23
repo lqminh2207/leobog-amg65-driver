@@ -26,7 +26,14 @@ except ImportError:
     sys.exit(1)
 
 PORT = 8080
-DIRECTORY = os.path.dirname(os.path.abspath(__file__))
+
+if getattr(sys, "frozen", False):  # inside the .app bundle
+    DIRECTORY = sys._MEIPASS
+    CONFIG_DIR = os.path.expanduser("~/Library/Application Support/LEOBOG AMG65 Studio")
+    os.makedirs(CONFIG_DIR, exist_ok=True)
+else:
+    DIRECTORY = os.path.dirname(os.path.abspath(__file__))
+    CONFIG_DIR = DIRECTORY
 
 VENDOR_ID = 0x0C45   # SONiX
 PRODUCT_ID = 0x800A  # LEOBOG AMG65
@@ -258,7 +265,7 @@ class LiveLedWorker(threading.Thread):
             self.stop_event.wait(3.0 if self.mode == "notify" else LIVE_INTERVAL)
 
 
-USER_CONFIG_PATH = os.path.join(DIRECTORY, "user_config.json")
+USER_CONFIG_PATH = os.path.join(CONFIG_DIR, "user_config.json")
 
 # key_index == light_index for every key on this board (from the driver's KeyboardLayout.xml).
 # 74 is the "/" key: our layout has it, the driver's XML omits it.
@@ -1140,10 +1147,21 @@ class AppHandler(http.server.SimpleHTTPRequestHandler):
         self.send_response(404)
         self.end_headers()
 
+httpd = None
+
+
+def shutdown():
+    controller.set_live_layer("off")
+    if httpd:
+        httpd.shutdown()
+
+
 def main():
+    global httpd
     os.chdir(DIRECTORY)
     socketserver.TCPServer.allow_reuse_address = True
-    with socketserver.TCPServer(("", PORT), AppHandler) as httpd:
+    # bind to loopback only: this server can reprogram the keyboard
+    with socketserver.TCPServer(("127.0.0.1", PORT), AppHandler) as httpd:
         url = f"http://localhost:{PORT}"
         print("==================================================")
         print(" LEOBOG AMG65 macOS Native Driver Server Started!")
