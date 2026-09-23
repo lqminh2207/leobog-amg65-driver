@@ -12,8 +12,6 @@
 #define FLASH_INTERFACE_NUM 3
 #define FLASH_BLOCK_SIZE 4096
 
-typedef void (*progress_callback_t)(int current, int total);
-
 static io_service_t find_interface3_service() {
     CFMutableDictionaryRef matchingDict = IOServiceMatching(kIOUSBInterfaceClassName);
     if (!matchingDict) return IO_OBJECT_NULL;
@@ -90,9 +88,11 @@ int leobog_test_interface3() {
     return 0; // Success
 }
 
-// Write 4096-byte blocks to Pipe 1 (Endpoint 0x06 OUT)
-int leobog_flash_blocks(const uint8_t *data, int total_blocks, progress_callback_t cb) {
-    if (!data || total_blocks <= 0) return -10;
+// Per-block session API: the caller must wait for the interface-2 ack between blocks.
+static IOUSBInterfaceInterface **g_intf = NULL;
+
+int leobog_flash_open(void) {
+    if (g_intf) return 0;
 
     io_service_t service = find_interface3_service();
     if (service == IO_OBJECT_NULL) {
@@ -120,41 +120,34 @@ int leobog_flash_blocks(const uint8_t *data, int total_blocks, progress_callback
         return -3;
     }
 
-    IOReturn kr = (*intf)->USBInterfaceOpen(intf);
-    if (kr != kIOReturnSuccess) {
+    if ((*intf)->USBInterfaceOpen(intf) != kIOReturnSuccess) {
         (*intf)->Release(intf);
         return -4;
     }
 
-    int ret = 0;
-    for (int b = 0; b < total_blocks; b++) {
-        const uint8_t *block_ptr = data + (b * FLASH_BLOCK_SIZE);
+    g_intf = intf;
+    return 0;
+}
 
-        // Write 4096 bytes to Pipe 1 with 2000ms timeout
-        kr = (*intf)->WritePipeTO(intf, 1, (void*)block_ptr, FLASH_BLOCK_SIZE, 2000, 2000);
-        if (kr != kIOReturnSuccess) {
-            // If WritePipeTO is not supported on this pipe type, try WritePipe
-            kr = (*intf)->WritePipe(intf, 1, (void*)block_ptr, FLASH_BLOCK_SIZE);
-        }
+// Write one 4096-byte block to Pipe 1 (EP 0x06 interrupt OUT)
+int leobog_flash_write_block(const uint8_t *block) {
+    if (!g_intf) return -1;
+    if (!block) return -10;
 
-        if (kr != kIOReturnSuccess) {
-            fprintf(stderr, "WritePipe failed at block %d/%d with error 0x%08x\n", b, total_blocks, kr);
-            ret = -5;
-            break;
-        }
-
-        if (b == 0) {
-            usleep(500000); // 500ms for flash sector erase
-        } else {
-            usleep(15000);  // 15ms
-        }
-
-        if (cb) {
-            cb(b + 1, total_blocks);
-        }
+    IOReturn kr = (*g_intf)->WritePipeTO(g_intf, 1, (void*)block, FLASH_BLOCK_SIZE, 2000, 2000);
+    if (kr != kIOReturnSuccess) {
+        kr = (*g_intf)->WritePipe(g_intf, 1, (void*)block, FLASH_BLOCK_SIZE);
     }
+    if (kr != kIOReturnSuccess) {
+        fprintf(stderr, "WritePipe failed with error 0x%08x\n", kr);
+        return -5;
+    }
+    return 0;
+}
 
-    (*intf)->USBInterfaceClose(intf);
-    (*intf)->Release(intf);
-    return ret;
+void leobog_flash_close(void) {
+    if (!g_intf) return;
+    (*g_intf)->USBInterfaceClose(g_intf);
+    (*g_intf)->Release(g_intf);
+    g_intf = NULL;
 }
