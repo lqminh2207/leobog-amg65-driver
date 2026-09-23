@@ -92,6 +92,13 @@ export class LedMatrixEditor {
       }
       this.render();
     });
+    $("ledDelAllFrames").addEventListener("click", () => {
+      if (!confirm(`Xoá tất cả ${this.frames.length} khung hình trong trình vẽ? (Hiệu ứng đã nạp trong phím không bị ảnh hưởng)`)) return;
+      this.stop();
+      this.frames = [blankFrame()];
+      this.current = 0;
+      this.render();
+    });
     $("ledPlay").addEventListener("click", () => (this.playTimer ? this.stop() : this.play()));
 
     $("ledImport").addEventListener("click", () => $("ledFileInput").click());
