@@ -12,6 +12,7 @@ import ctypes
 import ctypes.util
 import subprocess
 import threading
+import re
 
 try:
     import hid
@@ -77,6 +78,21 @@ def cpu_ticks():
         return None
     t = list(info.ticks)
     return t[0] + t[1] + t[3], t[2]
+
+
+def ioreg_number(args, key):
+    out = subprocess.run(["ioreg"] + args, capture_output=True, text=True, timeout=5).stdout
+    m = re.search(r'"%s"\s*=\s*(\d+)' % re.escape(key), out)
+    return int(m.group(1)) if m else None
+
+
+def gpu_percent():
+    return ioreg_number(["-r", "-d", "1", "-w", "0", "-c", "IOAccelerator"], "Device Utilization %") or 0
+
+
+def idle_seconds():
+    ns = ioreg_number(["-c", "IOHIDSystem", "-d", "4", "-w", "0"], "HIDIdleTime")
+    return ns / 1e9 if ns is not None else 0.0
 
 
 def memory_percent():
@@ -201,7 +217,7 @@ def draw_badges(frame, badges):
 class LiveLedWorker(threading.Thread):
     """Renders a live layer on the Mac and pushes one 04 35 frame per second."""
 
-    MODES = ("cpu", "ram", "net", "clock", "notify")
+    MODES = ("cpu", "gpu", "ram", "net", "clock", "notify")
 
     def __init__(self, controller, mode):
         super().__init__(daemon=True)
@@ -227,6 +243,8 @@ class LiveLedWorker(threading.Thread):
         frame = blank_frame()
         if self.mode == "cpu":
             draw_bar(frame, self.cpu_percent(), range(LED_ROWS))
+        elif self.mode == "gpu":
+            draw_bar(frame, gpu_percent(), range(LED_ROWS))
         elif self.mode == "ram":
             draw_bar(frame, memory_percent(), range(LED_ROWS))
         elif self.mode == "net":
@@ -253,6 +271,9 @@ class LiveLedWorker(threading.Thread):
 
     def run(self):
         while not self.stop_event.is_set():
+            if self.controller.reminding:
+                self.stop_event.wait(0.5)
+                continue
             try:
                 res = self.controller.led_matrix_preview(self.render())
                 if not res.get("success"):
@@ -333,6 +354,57 @@ def send_table(h, opcode, table, tag):
         h.read(64, timeout_ms=200)
     send_cmd(h, [0x04, 0x02], tag)
     send_cmd(h, [0x04, 0xF0], tag)
+
+
+class SitReminder(threading.Thread):
+    """Nags on the LED matrix after `minutes` of continuous use; a 5-minute break resets the timer."""
+
+    BREAK_SECONDS = 300
+    SHOW_SECONDS = 6
+    REPEAT_SECONDS = 300
+
+    def __init__(self, controller, minutes):
+        super().__init__(daemon=True)
+        self.controller = controller
+        self.minutes = minutes
+        self.stop_event = threading.Event()
+        self.active_since = time.time()
+        self.last_nag = 0.0
+
+    def frame(self, lit):
+        frame = blank_frame()
+        if lit:
+            draw_bar(frame, 100, (0, 4), "#ff9500")
+            draw_text(frame, str(self.minutes), "#ff3b30", top=0)
+        return frame
+
+    def nag(self):
+        subprocess.run(["osascript", "-e",
+                        f'display notification "Bạn đã ngồi {self.minutes} phút, đứng dậy vận động chút nhé!" '
+                        f'with title "LEOBOG AMG65"'], capture_output=True, timeout=5)
+        self.controller.reminding = True
+        try:
+            end = time.time() + self.SHOW_SECONDS
+            lit = True
+            while time.time() < end and not self.stop_event.is_set():
+                self.controller.led_matrix_preview(self.frame(lit))
+                lit = not lit
+                self.stop_event.wait(0.5)
+        finally:
+            self.controller.reminding = False
+
+    def run(self):
+        while not self.stop_event.wait(10):
+            now = time.time()
+            if idle_seconds() >= self.BREAK_SECONDS:
+                self.active_since = now
+                continue
+            if now - self.active_since >= self.minutes * 60 and now - self.last_nag >= self.REPEAT_SECONDS:
+                self.last_nag = now
+                try:
+                    self.nag()
+                except Exception as e:
+                    print(f"[led] sit reminder failed: {e}")
 
 
 def ack_ok(resp):
@@ -419,6 +491,49 @@ class KeyboardController:
     def __init__(self):
         self.device_info = None
         self.live_worker = None
+        self.sit_reminder = None
+        self.reminding = False
+
+    def set_sit_reminder(self, minutes):
+        minutes = int(minutes or 0)
+        if self.sit_reminder:
+            self.sit_reminder.stop_event.set()
+            self.sit_reminder = None
+        if minutes > 0:
+            self.sit_reminder = SitReminder(self, minutes)
+            self.sit_reminder.start()
+        cfg = load_user_config()
+        cfg["sitReminder"] = minutes
+        save_user_config(cfg)
+        return {"success": True, "minutes": minutes}
+
+    def import_profile(self, profile):
+        """Load an exported profile and push keymap, per-key colours and settings to the keyboard."""
+        cfg = load_user_config()
+        for key in ("keymap", "keyColors", "settings", "tftSlot", "sitReminder"):
+            if key in profile:
+                cfg[key] = profile[key]
+        save_user_config(cfg)
+        steps = [("gán phím", self.apply_keymap(cfg["keymap"])), ("cài đặt", self.apply_settings(cfg["settings"]))]
+        if cfg["keyColors"]:
+            steps.append(("màu từng phím", self.apply_key_colors(cfg["keyColors"])))
+        failed = [f"{name}: {res.get('error')}" for name, res in steps if not res.get("success")]
+        if failed:
+            return {"success": False, "error": "; ".join(failed)}
+        return {"success": True}
+
+    def factory_reset(self):
+        """Keymap and settings back to defaults. Per-key colours are only cleared locally:
+        the keyboard's factory colour table is unknown, so we do not overwrite it."""
+        self.set_live_layer("off")
+        cfg = load_user_config()
+        cfg.update({"keymap": {}, "keyColors": {}, "settings": dict(DEFAULT_SETTINGS)})
+        cfg.pop("ledBrightnessPrev", None)
+        save_user_config(cfg)
+        for res in (self.apply_keymap({}), self.apply_settings(DEFAULT_SETTINGS)):
+            if not res.get("success"):
+                return res
+        return {"success": True}
 
     def set_live_layer(self, mode):
         if self.live_worker:
@@ -911,6 +1026,8 @@ class KeyboardController:
 
 
 controller = KeyboardController()
+if load_user_config().get("sitReminder"):
+    controller.set_sit_reminder(load_user_config()["sitReminder"])
 
 class AppHandler(http.server.SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
@@ -1027,6 +1144,18 @@ class AppHandler(http.server.SimpleHTTPRequestHandler):
             return
         elif self.path == "/api/led-matrix/import":
             res = controller.led_matrix_from_image(data.get("image", ""))
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps(res).encode("utf-8"))
+            return
+        elif self.path in ("/api/sit-reminder", "/api/profile/import", "/api/factory-reset"):
+            if self.path == "/api/sit-reminder":
+                res = controller.set_sit_reminder(data.get("minutes", 0))
+            elif self.path == "/api/profile/import":
+                res = controller.import_profile(data.get("profile", {}))
+            else:
+                res = controller.factory_reset()
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()

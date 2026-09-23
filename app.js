@@ -22,6 +22,7 @@ class AppUI {
     this.ledMatrix = new LedMatrixEditor(this);
     this.initKeyColorControls();
     this.initSettingsControls();
+    this.initProfileControls();
     this.loadUserConfig();
 
     // Try auto-connecting on start
@@ -332,6 +333,7 @@ class AppUI {
         if (name) this.keyRemapCache[keyIndex] = name;
       });
       this.applySettingsToUI(data.settings || {});
+      document.getElementById("sitReminder").value = String(data.sitReminder || 0);
       this.updateKeyboardDisplay();
     } catch (e) {
       // first run: no saved config yet
@@ -443,6 +445,71 @@ class AppUI {
       } catch (err) {
         status.textContent = "Lỗi: " + err.message;
         this.showToast("Lỗi: " + err.message, "error");
+      }
+    });
+  }
+
+  initProfileControls() {
+    const status = document.getElementById("profileStatus");
+    const fail = err => {
+      status.textContent = "Lỗi: " + err.message;
+      this.showToast("Lỗi: " + err.message, "error");
+    };
+
+    document.getElementById("sitReminder").addEventListener("change", async e => {
+      try {
+        const res = await this.driver.setSitReminder(Number(e.target.value));
+        this.showToast(res.minutes ? `Sẽ nhắc sau ${res.minutes} phút dùng máy liên tục.` : "Đã tắt nhắc nhở.", "success");
+      } catch (err) {
+        this.showToast("Lỗi: " + err.message, "error");
+      }
+    });
+
+    document.getElementById("btnExportProfile").addEventListener("click", async () => {
+      try {
+        const data = await (await fetch("/api/user-config")).json();
+        const { success, ...profile } = data;
+        const blob = new Blob([JSON.stringify(profile, null, 2)], { type: "application/json" });
+        const link = document.createElement("a");
+        link.href = URL.createObjectURL(blob);
+        link.download = `amg65-profile-${new Date().toISOString().slice(0, 10)}.json`;
+        link.click();
+        URL.revokeObjectURL(link.href);
+        status.textContent = "Đã xuất hồ sơ cấu hình.";
+      } catch (err) {
+        fail(err);
+      }
+    });
+
+    const fileInput = document.getElementById("profileFileInput");
+    document.getElementById("btnImportProfile").addEventListener("click", () => fileInput.click());
+    fileInput.addEventListener("change", async e => {
+      const file = e.target.files[0];
+      fileInput.value = "";
+      if (!file) return;
+      status.textContent = "Đang nạp hồ sơ vào bàn phím...";
+      try {
+        await this.driver.importProfile(JSON.parse(await file.text()));
+        this.keyRemapCache = {};
+        await this.loadUserConfig();
+        status.textContent = `Đã nạp hồ sơ từ ${file.name}.`;
+        this.showToast("Đã nạp hồ sơ cấu hình vào bàn phím!", "success");
+      } catch (err) {
+        fail(err);
+      }
+    });
+
+    document.getElementById("btnFactoryReset").addEventListener("click", async () => {
+      if (!confirm("Trả toàn bộ gán phím và cài đặt về mặc định?")) return;
+      status.textContent = "Đang khôi phục...";
+      try {
+        await this.driver.factoryReset();
+        this.keyRemapCache = {};
+        await this.loadUserConfig();
+        status.textContent = "Đã khôi phục cài đặt gốc.";
+        this.showToast("Đã khôi phục cài đặt gốc!", "success");
+      } catch (err) {
+        fail(err);
       }
     });
   }

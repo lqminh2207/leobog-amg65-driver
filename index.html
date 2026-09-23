@@ -434,12 +434,28 @@
           <select class="mode-select" id="ledLiveMode">
             <option value="off">Tắt (dùng hiệu ứng lưu trong phím)</option>
             <option value="cpu">CPU đang dùng (%)</option>
+            <option value="gpu">GPU đang dùng (%)</option>
             <option value="ram">Bộ nhớ RAM đang dùng (%)</option>
             <option value="net">Tốc độ mạng (xuống / lên)</option>
             <option value="clock">Đồng hồ giờ:phút</option>
             <option value="notify">Thông báo ứng dụng (Slack, Mail...)</option>
           </select>
           <div class="led-status" id="ledLiveStatus"></div>
+        </div>
+
+        <div class="control-card">
+          <div class="card-title">Nhắc Nhở Ngồi Lâu</div>
+          <p class="led-hint">
+            Dùng máy liên tục quá thời gian đã chọn thì màn LED nháy cam và macOS hiện thông báo.
+            Rời máy 5 phút thì bộ đếm tự đặt lại.
+          </p>
+          <select class="mode-select" id="sitReminder">
+            <option value="0">Tắt</option>
+            <option value="30">Sau 30 phút</option>
+            <option value="45">Sau 45 phút</option>
+            <option value="60">Sau 60 phút</option>
+            <option value="90">Sau 90 phút</option>
+          </select>
         </div>
       </div>
     </div>
@@ -483,6 +499,20 @@
           </div>
           <button class="btn btn-primary" id="btnApplySettings">Lưu Cài Đặt Vào Bàn Phím</button>
           <div class="led-status" id="settingsStatus"></div>
+        </div>
+
+        <div class="control-card">
+          <div class="card-title">Hồ Sơ Cấu Hình</div>
+          <p class="led-hint">
+            Lưu toàn bộ gán phím, màu từng phím và cài đặt ra một file để sao lưu, chuyển máy hoặc gửi cho người khác.
+          </p>
+          <div class="led-toolbar">
+            <button class="btn btn-secondary" id="btnExportProfile">Xuất Ra File</button>
+            <input type="file" id="profileFileInput" accept="application/json,.json" hidden>
+            <button class="btn btn-secondary" id="btnImportProfile">Nhập Từ File</button>
+          </div>
+          <button class="btn btn-secondary" id="btnFactoryReset">Khôi Phục Cài Đặt Gốc</button>
+          <div class="led-status" id="profileStatus"></div>
         </div>
 
         <div class="control-card">

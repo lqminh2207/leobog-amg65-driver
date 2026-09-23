@@ -222,6 +222,20 @@ export class LeobogDriver {
     return data.colors;
   }
 
+  async setSitReminder(minutes) {
+    return this.postJson("/api/sit-reminder", { minutes });
+  }
+
+  async importProfile(profile) {
+    if (!this.useNativeBackend) throw new Error("Chưa kết nối tới bàn phím");
+    return this.postJson("/api/profile/import", { profile });
+  }
+
+  async factoryReset() {
+    if (!this.useNativeBackend) throw new Error("Chưa kết nối tới bàn phím");
+    return this.postJson("/api/factory-reset", {});
+  }
+
   async applySettings(settings) {
     if (!this.useNativeBackend) throw new Error("Chưa kết nối tới bàn phím");
     return this.postJson("/api/settings", { settings });
