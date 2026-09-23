@@ -188,6 +188,11 @@ export class LeobogDriver {
     return this.postJson("/api/led-matrix/live", { mode });
   }
 
+  async ledMatrixBrightness({ value = 0, restore = false } = {}) {
+    if (!this.useNativeBackend) throw new Error("Chưa kết nối tới bàn phím");
+    return this.postJson("/api/led-matrix/brightness", { value, restore });
+  }
+
   async ledMatrixImport(image) {
     return this.postJson("/api/led-matrix/import", { image });
   }

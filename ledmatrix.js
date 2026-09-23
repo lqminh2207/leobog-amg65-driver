@@ -131,8 +131,8 @@ export class LedMatrixEditor {
     }));
     $("ledOff").addEventListener("click", () => this.run($("ledOff"), async () => {
       resetLive();
-      this.setStatus("Đang tắt màn LED...");
-      return this.turnOff();
+      this.setStatus(this.matrixOff ? "Đang bật lại màn LED..." : "Đang tắt màn LED...");
+      return this.toggleOff();
     }));
     $("ledUpload").addEventListener("click", () => this.run($("ledUpload"), async () => {
       resetLive();
@@ -152,13 +152,13 @@ export class LedMatrixEditor {
     }));
   }
 
-  async turnOff() {
-    const target = document.getElementById("ledTarget").value;
-    await this.driver.ledMatrixLive("off");
-    await this.driver.ledMatrixUpload({ frames: [blankFrame()], speed: 10, brightness: 0, target });
-    return target === "boot"
-      ? "Đã tắt hiệu ứng khởi động của màn LED."
-      : "Đã tắt màn LED ma trận. Nạp lại hiệu ứng bất kỳ để bật lại.";
+  // The keyboard has no off command, so off = matrix brightness 0; the stored animation is kept
+  async toggleOff() {
+    const off = !this.matrixOff;
+    await this.driver.ledMatrixBrightness(off ? { value: 0 } : { restore: true });
+    this.matrixOff = off;
+    document.getElementById("ledOff").textContent = off ? "Bật Lại Màn LED Ma Trận" : "Tắt Màn LED Ma Trận";
+    return off ? "Đã tắt màn LED ma trận (hiệu ứng trong phím vẫn được giữ)." : "Đã bật lại màn LED ma trận.";
   }
 
   async run(button, task) {

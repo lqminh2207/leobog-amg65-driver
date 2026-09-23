@@ -757,6 +757,25 @@ class KeyboardController:
             finally:
                 DEVICE_LOCK.release()
 
+    def set_matrix_brightness(self, value):
+        """The keyboard has no matrix off command, so off = 04 17 brightness 0."""
+        value = max(0, min(10, int(value)))
+        cfg = load_user_config()
+        current = int(cfg["settings"].get("ledBrightness", DEFAULT_SETTINGS["ledBrightness"]))
+        if value == 0:
+            self.set_live_layer("off")
+            if current > 0:
+                cfg["ledBrightnessPrev"] = current
+                save_user_config(cfg)
+        res = self.apply_settings({"ledBrightness": value})
+        if res.get("success"):
+            res["brightness"] = value
+        return res
+
+    def restore_matrix_brightness(self):
+        cfg = load_user_config()
+        return self.set_matrix_brightness(cfg.get("ledBrightnessPrev", DEFAULT_SETTINGS["ledBrightness"]))
+
     def led_matrix_from_image(self, data_url, max_frames=260):
         """Downscale an image/GIF to 5x63 frames for the editor."""
         try:
@@ -922,7 +941,9 @@ class KeyboardController:
         if not path:
             return {"success": False, "error": "Ban phim chua duoc cam"}
 
+        cfg = load_user_config()
         merged = dict(DEFAULT_SETTINGS)
+        merged.update({k: int(v) for k, v in cfg["settings"].items() if k in DEFAULT_SETTINGS})
         merged.update({k: int(v) for k, v in settings.items() if k in DEFAULT_SETTINGS})
 
         pkt = [0] * 64
@@ -946,7 +967,6 @@ class KeyboardController:
                 raise RuntimeError("Ban phim tu choi lenh cai dat (04 17)")
             send_cmd(h, pkt, "settings")
             send_cmd(h, [0x04, 0x02], "settings")
-            cfg = load_user_config()
             cfg["settings"] = merged
             save_user_config(cfg)
             return {"success": True, "settings": merged}
@@ -1066,6 +1086,16 @@ class AppHandler(http.server.SimpleHTTPRequestHandler):
             return
         elif self.path == "/api/led-matrix/live":
             res = controller.set_live_layer(data.get("mode", "off"))
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps(res).encode("utf-8"))
+            return
+        elif self.path == "/api/led-matrix/brightness":
+            if data.get("restore"):
+                res = controller.restore_matrix_brightness()
+            else:
+                res = controller.set_matrix_brightness(data.get("value", 0))
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
