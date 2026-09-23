@@ -251,6 +251,32 @@ class AppUI {
       this.remapCategoriesContainer.appendChild(catDiv);
     });
 
+    // Custom combo: any key from the plain-key categories plus modifier checkboxes
+    const comboKey = document.getElementById("comboKey");
+    KEY_REMAP_CATEGORIES.filter(c => c.keys.every(k => k.kind === "key")).forEach(cat => {
+      const group = document.createElement("optgroup");
+      group.label = cat.name;
+      cat.keys.forEach(k => {
+        const opt = document.createElement("option");
+        opt.value = k.code;
+        opt.textContent = k.name;
+        group.appendChild(opt);
+      });
+      comboKey.appendChild(group);
+    });
+    document.getElementById("btnApplyCombo").addEventListener("click", () => {
+      const mods = [...document.querySelectorAll(".combo-builder [data-mod]")].filter(c => c.checked);
+      const mask = mods.reduce((m, c) => m | Number(c.dataset.mod), 0);
+      if (!mask) {
+        this.showToast("Chọn ít nhất một phím bổ trợ (⌃ ⇧ ⌥ ⌘).", "info");
+        return;
+      }
+      const symbols = { 1: "⌃", 2: "⇧", 4: "⌥", 8: "⌘" };
+      const keyName = comboKey.options[comboKey.selectedIndex].text;
+      const name = mods.map(c => symbols[c.dataset.mod]).join(" + ") + " + " + keyName;
+      this.applyRemap({ kind: "shortcut", code: (mask << 8) | Number(comboKey.value), name });
+    });
+
     this.closeRemapModal.addEventListener("click", () => {
       this.remapModal.classList.remove("open");
       if (this.selectedKeyElement) this.selectedKeyElement.classList.remove("selected");
@@ -284,7 +310,7 @@ class AppUI {
 
     this.showToast(`Đang gán phím ${this.selectedKey.name} -> ${remapTarget.name}...`, "info");
     try {
-      await this.driver.remapKey(this.selectedKey.key_index, remapTarget.kind || "key", remapTarget.code);
+      await this.driver.remapKey(this.selectedKey.key_index, remapTarget.kind || "key", remapTarget.code, remapTarget.name);
       if (remapTarget.kind === "default") delete this.keyRemapCache[this.selectedKey.key_index];
       this.showToast(`Đã lưu thành công: ${this.selectedKey.name} -> ${remapTarget.name}!`, "success");
     } catch (err) {
@@ -302,7 +328,8 @@ class AppUI {
       Object.entries(data.keymap || {}).forEach(([keyIndex, entry]) => {
         const target = KEY_REMAP_CATEGORIES.flatMap(c => c.keys)
           .find(k => k.code === entry.code && (k.kind || "key") === entry.kind);
-        if (target) this.keyRemapCache[keyIndex] = target.name;
+        const name = target ? target.name : entry.label;
+        if (name) this.keyRemapCache[keyIndex] = name;
       });
       this.applySettingsToUI(data.settings || {});
       this.updateKeyboardDisplay();

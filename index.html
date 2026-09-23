@@ -507,7 +507,20 @@
         <button class="modal-close-btn" id="closeRemapModal">&times;</button>
       </div>
 
-      <div class="remap-body" id="remapCategoriesContainer"></div>
+      <div class="remap-body">
+        <div class="combo-builder">
+          <div class="remap-category-title">Tổ hợp phím tự chọn</div>
+          <div class="led-toolbar">
+            <label class="setting-item"><input type="checkbox" data-mod="1"> ⌃ Ctrl</label>
+            <label class="setting-item"><input type="checkbox" data-mod="2"> ⇧ Shift</label>
+            <label class="setting-item"><input type="checkbox" data-mod="4"> ⌥ Option</label>
+            <label class="setting-item"><input type="checkbox" data-mod="8"> ⌘ Command</label>
+            <select class="mode-select combo-key" id="comboKey"></select>
+            <button class="btn btn-primary" id="btnApplyCombo">Gán tổ hợp</button>
+          </div>
+        </div>
+        <div id="remapCategoriesContainer"></div>
+      </div>
     </div>
   </div>
 

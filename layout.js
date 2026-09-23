@@ -174,6 +174,32 @@ export const KEY_REMAP_CATEGORIES = [
     ]
   },
   {
+    name: "Chuột (Mouse)",
+    keys: [
+      { kind: "mouse", code: 0x0101, name: "Chuột trái" },
+      { kind: "mouse", code: 0x0102, name: "Chuột phải" },
+      { kind: "mouse", code: 0x0104, name: "Chuột giữa" },
+      { kind: "mouse", code: 0x0108, name: "Lùi trang (Back)" },
+      { kind: "mouse", code: 0x0110, name: "Tiến trang (Forward)" },
+      { kind: "mouse", code: 0x0301, name: "Cuộn lên" },
+      { kind: "mouse", code: 0x03FF, name: "Cuộn xuống" }
+    ]
+  },
+  {
+    // code = modifier mask << 8 | usage; mask: Ctrl 0x01, Shift 0x02, Option 0x04, Cmd 0x08
+    name: "Phím tắt macOS (1 phím = cả tổ hợp)",
+    keys: [
+      { kind: "shortcut", code: 0x0835, name: "⌘ + ` (chuyển cửa sổ cùng app)" },
+      { kind: "shortcut", code: 0x082C, name: "⌘ + Space (Spotlight)" },
+      { kind: "shortcut", code: 0x0914, name: "⌃ + ⌘ + Q (khoá màn hình)" },
+      { kind: "shortcut", code: 0x0A21, name: "⌘ + ⇧ + 4 (chụp vùng màn hình)" },
+      { kind: "shortcut", code: 0x0806, name: "⌘ + C (sao chép)" },
+      { kind: "shortcut", code: 0x0819, name: "⌘ + V (dán)" },
+      { kind: "shortcut", code: 0x081D, name: "⌘ + Z (hoàn tác)" },
+      { kind: "shortcut", code: 0x082B, name: "⌘ + Tab (chuyển app)" }
+    ]
+  },
+  {
     name: "Khôi phục",
     keys: [
       { kind: "default", code: 0x00, name: "Trả về chức năng gốc" }

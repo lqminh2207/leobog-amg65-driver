@@ -300,6 +300,8 @@ def remap_entry(kind, code):
         return [0x03, code & 0xFF, (code >> 8) & 0xFF, 0x00]
     if kind == "shortcut":  # code = (modifier mask << 8) | usage
         return [0x02, (code >> 8) & 0xFF, code & 0xFF, 0x00]
+    if kind == "mouse":  # code = (01 button mask | 03 wheel) << 8 | value
+        return [0x01, (code >> 8) & 0xFF, code & 0xFF, 0x00]
     return [0x02, 0x00, code & 0xFF, 0x00]  # plain key
 
 
@@ -779,12 +781,12 @@ class KeyboardController:
             finally:
                 DEVICE_LOCK.release()
 
-    def remap_key(self, key_index, kind, code):
+    def remap_key(self, key_index, kind, code, label=None):
         cfg = load_user_config()
         if kind == "default":
             cfg["keymap"].pop(str(key_index), None)
         else:
-            cfg["keymap"][str(key_index)] = {"kind": kind, "code": int(code)}
+            cfg["keymap"][str(key_index)] = {"kind": kind, "code": int(code), "label": label}
         res = self.apply_keymap(cfg["keymap"])
         if res.get("success"):
             save_user_config(cfg)
@@ -1052,7 +1054,8 @@ class AppHandler(http.server.SimpleHTTPRequestHandler):
             self.wfile.write(json.dumps(res).encode("utf-8"))
             return
         elif self.path == "/api/remap":
-            res = controller.remap_key(data.get("keyIndex", 0), data.get("kind", "key"), data.get("code", 0))
+            res = controller.remap_key(data.get("keyIndex", 0), data.get("kind", "key"), data.get("code", 0),
+                                       data.get("label"))
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
