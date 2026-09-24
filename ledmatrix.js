@@ -26,6 +26,21 @@ function fitFrame(pixels, srcWidth, mode) {
 
 const THUMB_CELL = 5;
 
+// Pixel-art boost for JSON frames: the same per-pixel curve on every frame, so there is no
+// frame-to-frame flicker and light/dark shades keep their order (unlike the image boost)
+function boostColor(hex) {
+  if (hex === OFF) return OFF;
+  const rgb = [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16));
+  if (Math.max(...rgb) < 24) return OFF;
+  const lifted = rgb.map(c => 255 * (c / 255) ** 0.7);
+  const gray = (lifted[0] + lifted[1] + lifted[2]) / 3;
+  return "#" + lifted
+    .map(c => Math.round(Math.min(255, Math.max(0, gray + (c - gray) * 1.4))).toString(16).padStart(2, "0"))
+    .join("");
+}
+
+const boostFrame = frame => frame.map(boostColor);
+
 function drawThumb(canvas, frame) {
   const ctx = canvas.getContext("2d");
   ctx.fillStyle = "#05070a";
@@ -342,7 +357,8 @@ export class LedMatrixEditor {
       this.jsonPages.forEach(p => {
         // rAF's timestamp can predate `started` on the first frame
         const index = Math.floor(Math.max(0, now - started) / (p.speedMs || 100)) % p.frames.length;
-        drawThumb(p.canvas, fitFrame(p.frames[index], p.width, mode));
+        const frame = fitFrame(p.frames[index], p.width, mode);
+        drawThumb(p.canvas, document.getElementById("ledBoost").checked ? boostFrame(frame) : frame);
       });
       this.jsonAnim = requestAnimationFrame(tick);
     };
@@ -358,7 +374,10 @@ export class LedMatrixEditor {
     const page = this.jsonPages[this.jsonSelected];
     const mode = document.getElementById("ledJsonFit").value;
     this.stop();
-    this.frames = page.frames.slice(0, MAX_FRAMES.animation).map(f => fitFrame(f, page.width, mode));
+    const boost = document.getElementById("ledBoost").checked;
+    this.frames = page.frames.slice(0, MAX_FRAMES.animation)
+      .map(f => fitFrame(f, page.width, mode))
+      .map(f => (boost ? boostFrame(f) : f));
     this.current = 0;
     this.previewMs = page.speedMs > 0 ? page.speedMs : null;
     this.render();
