@@ -464,6 +464,19 @@
             <option value="music">Nhảy theo nhạc (âm thanh đang phát trên Mac)</option>
             <option value="notify">Thông báo ứng dụng (Slack, Mail...)</option>
           </select>
+          <div class="led-toolbar" id="musicOptions" style="display: none;">
+            <span class="slider-label">Bảng màu</span>
+            <select class="mode-select combo-key" id="musicPalette">
+              <option value="rainbow">Cầu vồng</option>
+              <option value="cycle">Cầu vồng chạy</option>
+              <option value="vu">VU cổ điển (xanh → đỏ)</option>
+              <option value="fire">Lửa</option>
+              <option value="intensity">Theo độ to</option>
+              <option value="neon">Neon (cyan → hồng)</option>
+              <option value="single">Một màu</option>
+            </select>
+            <input type="color" id="musicColor" value="#00f0ff" title="Màu cho bảng 'Một màu'" style="display: none;">
+          </div>
           <div class="led-status" id="ledLiveStatus"></div>
         </div>
 

@@ -344,6 +344,7 @@ class AppUI {
       });
       this.applySettingsToUI(data.settings || {});
       this.macroEditor.setMacros(data.macros);
+      this.ledMatrix.setMusicOptions(data.musicPalette, data.musicColor);
       document.getElementById("sitReminder").value = String(data.sitReminder || 0);
       document.getElementById("tftSlot").value = String(data.tftSlot || 1);
       document.getElementById("chkTftSysInfo").checked = !!data.tftSysInfo;

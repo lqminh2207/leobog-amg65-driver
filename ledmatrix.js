@@ -129,6 +129,31 @@ export class LedMatrixEditor {
       }
     });
 
+    // Music palette: applied to the running layer in place, remembered for next time
+    const palette = $("musicPalette");
+    const musicColor = $("musicColor");
+    const syncMusicOptions = () => {
+      $("musicOptions").style.display = liveMode.value === "music" ? "" : "none";
+      musicColor.style.display = palette.value === "single" ? "" : "none";
+    };
+    const pushMusicOptions = async () => {
+      syncMusicOptions();
+      try {
+        await this.driver.ledMatrixLive(liveMode.value === "music" ? "music" : liveMode.value,
+                                        { palette: palette.value, color: musicColor.value });
+      } catch (err) {
+        this.app.showToast("Lỗi: " + err.message, "error");
+      }
+    };
+    palette.addEventListener("change", pushMusicOptions);
+    musicColor.addEventListener("change", pushMusicOptions);
+    liveMode.addEventListener("change", syncMusicOptions);
+    this.setMusicOptions = (name, color) => {
+      if (name) palette.value = name;
+      if (color) musicColor.value = color;
+      syncMusicOptions();
+    };
+
     // Manual LED writes stop the live layer on the server; keep the selector in sync
     const resetLive = () => {
       if (liveMode.value === "off") return;

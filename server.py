@@ -198,9 +198,30 @@ def matrix_speed_word(level):
 
 AUDIOTAP_PATH = os.path.join(DIRECTORY, "audiotap")
 MUSIC_INTERVAL = 0.03
-# cyan -> violet -> pink across the 63 bands, like the app icon
-MUSIC_COLORS = ["#%02x%02x%02x" % tuple(round(c * 255) for c in colorsys.hls_to_rgb(0.5 + 0.45 * i / (LED_COLS - 1), 0.5, 1.0))
-                for i in range(LED_COLS)]
+MUSIC_PALETTES = ("rainbow", "cycle", "vu", "fire", "intensity", "neon", "single")
+VU_ROWS = ((0, 230, 64), (140, 255, 0), (255, 220, 0), (255, 110, 0), (255, 0, 40))  # bottom -> top
+FIRE_ROWS = ((150, 0, 0), (255, 40, 0), (255, 140, 0), (255, 220, 40), (255, 255, 200))
+
+
+def hue_color(hue):
+    return tuple(round(c * 255) for c in colorsys.hls_to_rgb(hue % 1.0, 0.5, 1.0))
+
+
+def music_color(palette, col, row, level, t, single):
+    """Colour of one lit cell; row 0 is the bottom, level is the band's 0..1 loudness."""
+    if palette == "rainbow":
+        return hue_color(col / LED_COLS)
+    if palette == "cycle":
+        return hue_color(col / LED_COLS - t * 0.15)
+    if palette == "vu":
+        return VU_ROWS[row]
+    if palette == "fire":
+        return FIRE_ROWS[row]
+    if palette == "intensity":
+        return hue_color(0.66 * (1 - level))  # quiet = blue, loud = red
+    if palette == "single":
+        return single
+    return hue_color(0.5 + 0.45 * col / (LED_COLS - 1))  # neon: cyan -> violet -> pink
 
 
 class AudioBands:
@@ -305,6 +326,8 @@ class LiveLedWorker(threading.Thread):
         self.flash_ticks = 0
         self.error = None
         self.audio = None
+        self.palette = "rainbow"
+        self.single_color = (0, 240, 255)
         if mode == "music":
             self.audio = AudioBands()
             self.audio.start()
@@ -323,9 +346,11 @@ class LiveLedWorker(threading.Thread):
         if self.mode == "cpu":
             draw_bar(frame, self.cpu_percent(), range(LED_ROWS))
         elif self.mode == "music":
+            t = time.time()
             for col, level in enumerate(self.audio.levels):
                 for r in range(round(level * LED_ROWS)):
-                    frame[(LED_ROWS - 1 - r) * LED_COLS + col] = MUSIC_COLORS[col]
+                    rgb = music_color(self.palette, col, r, level, t, self.single_color)
+                    frame[(LED_ROWS - 1 - r) * LED_COLS + col] = "#%02x%02x%02x" % rgb
         elif self.mode == "gpu":
             draw_bar(frame, gpu_percent(), range(LED_ROWS))
         elif self.mode == "ram":
@@ -862,6 +887,11 @@ class KeyboardController:
             save_user_config(cfg)
         return res
 
+    def apply_music_options(self, worker):
+        cfg = load_user_config()
+        worker.palette = cfg.get("musicPalette", "rainbow")
+        worker.single_color = parse_rgb(cfg.get("musicColor", "#00f0ff"))
+
     def set_sit_reminder(self, minutes):
         minutes = int(minutes or 0)
         if self.sit_reminder:
@@ -913,7 +943,23 @@ class KeyboardController:
         save_user_config(cfg)
         return {"success": True}
 
-    def set_live_layer(self, mode):
+    def set_live_layer(self, mode, options=None):
+        options = options or {}
+        palette = options.get("palette")
+        if palette is not None and palette not in MUSIC_PALETTES:
+            return {"success": False, "error": f"Bang mau khong hop le: {palette!r}"}
+        color = options.get("color")
+        if color is not None and not (isinstance(color, str) and HEX_COLOR.match(color)):
+            return {"success": False, "error": f"Mau khong hop le: {color!r}"}
+        if palette or color:
+            cfg = load_user_config()
+            cfg["musicPalette"] = palette or cfg.get("musicPalette", "rainbow")
+            cfg["musicColor"] = color or cfg.get("musicColor", "#00f0ff")
+            save_user_config(cfg)
+
+        if self.live_worker and self.live_worker.mode == mode:
+            self.apply_music_options(self.live_worker)
+            return {"success": True, "mode": mode}
         if self.live_worker:
             self.live_worker.stop_event.set()
             self.live_worker = None
@@ -921,6 +967,7 @@ class KeyboardController:
             if not self.find_device_path():
                 return {"success": False, "error": "Ban phim chua duoc cam"}
             self.live_worker = LiveLedWorker(self, mode)
+            self.apply_music_options(self.live_worker)
             self.live_worker.start()
         elif mode not in ("off", None, ""):
             return {"success": False, "error": f"Khong ho tro lop '{mode}'"}
@@ -1627,7 +1674,7 @@ class AppHandler(http.server.SimpleHTTPRequestHandler):
             self.wfile.write(json.dumps(res).encode("utf-8"))
             return
         elif self.path == "/api/led-matrix/live":
-            res = controller.set_live_layer(data.get("mode", "off"))
+            res = controller.set_live_layer(data.get("mode", "off"), data)
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()

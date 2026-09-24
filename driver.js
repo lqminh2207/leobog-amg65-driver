@@ -199,9 +199,9 @@ export class LeobogDriver {
     return data;
   }
 
-  async ledMatrixLive(mode) {
+  async ledMatrixLive(mode, options = {}) {
     if (!this.useNativeBackend) throw new Error("Chưa kết nối tới bàn phím");
-    return this.postJson("/api/led-matrix/live", { mode });
+    return this.postJson("/api/led-matrix/live", { ...options, mode });
   }
 
   async ledMatrixBrightness({ value = 0, restore = false } = {}) {
