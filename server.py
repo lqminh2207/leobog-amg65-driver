@@ -183,6 +183,18 @@ def boost_led_frame(img):
     return img
 
 
+SLOWEST_FRAME_WORD, FASTEST_FRAME_WORD = 101, 2  # the driver's 0x66 - speed for speed 1..100
+
+
+def matrix_speed_word(level):
+    """Slider level 1..100 -> the per-frame delay word the keyboard reads. The word is a linear
+    delay, so a linear slider only sped up near the top; a geometric scale makes each step
+    feel the same."""
+    level = max(1, min(100, int(level)))
+    ratio = FASTEST_FRAME_WORD / SLOWEST_FRAME_WORD
+    return round(SLOWEST_FRAME_WORD * ratio ** ((level - 1) / 99))
+
+
 def blank_frame():
     return ["#000000"] * (LED_ROWS * LED_COLS)
 
@@ -1068,7 +1080,7 @@ class KeyboardController:
 
         payload = bytearray(4 + len(frames) * LED_COUNT * 3 + 3)
         payload[0:2] = len(frames).to_bytes(2, "little")
-        payload[2:4] = (0x66 - speed).to_bytes(2, "little")
+        payload[2:4] = matrix_speed_word(speed).to_bytes(2, "little")
         for fi, frame in enumerate(frames):
             base = 4 + fi * LED_COUNT * 3
             for row in range(LED_ROWS):

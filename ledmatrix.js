@@ -106,7 +106,13 @@ export class LedMatrixEditor {
 
     const speed = $("ledSpeed");
     const brightness = $("ledBrightness");
-    speed.addEventListener("input", () => { $("ledSpeedVal").textContent = speed.value; });
+    // Same geometric curve as matrix_speed_word() in server.py; shown relative to the slowest level
+    const showSpeed = () => {
+      const word = Math.round(101 * (2 / 101) ** ((Number(speed.value) - 1) / 99));
+      $("ledSpeedVal").textContent = `${speed.value} (×${(101 / word).toFixed(1)})`;
+    };
+    speed.addEventListener("input", showSpeed);
+    showSpeed();
     brightness.addEventListener("input", () => { $("ledBrightnessVal").textContent = `${brightness.value}%`; });
 
     const liveMode = $("ledLiveMode");
