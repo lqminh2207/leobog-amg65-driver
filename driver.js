@@ -209,8 +209,8 @@ export class LeobogDriver {
     return this.postJson("/api/led-matrix/brightness", { value, restore });
   }
 
-  async ledMatrixImport(image) {
-    return this.postJson("/api/led-matrix/import", { image });
+  async ledMatrixImport(image, boost = false) {
+    return this.postJson("/api/led-matrix/import", { image, boost });
   }
 
   async saveMacros(macros) {

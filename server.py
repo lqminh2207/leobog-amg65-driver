@@ -24,7 +24,7 @@ except ImportError:
     sys.exit(1)
 
 try:
-    from PIL import Image, ImageSequence, ImageOps
+    from PIL import Image, ImageSequence, ImageOps, ImageEnhance
 except ImportError:
     print("Pillow chua duoc cai dat. Vui long chay: pip install Pillow")
     sys.exit(1)
@@ -170,6 +170,17 @@ def dock_badges():
         if name and badge:
             badges[name.strip()] = badge.strip()
     return badges
+
+
+def boost_led_frame(img):
+    """Averaging a big image down to 63x5 mixes bright strokes into dark backgrounds.
+    Stretch contrast (hue kept), saturate, lift mid-tones, and turn near-black fully off."""
+    img = ImageOps.autocontrast(img, cutoff=1, preserve_tone=True)
+    img = ImageEnhance.Color(img).enhance(1.8)
+    img = img.point(lambda v: round(255 * (v / 255) ** 0.6))
+    out = [(0, 0, 0) if max(px) < 40 else px for px in img.getdata()]
+    img.putdata(out)
+    return img
 
 
 def blank_frame():
@@ -1107,7 +1118,7 @@ class KeyboardController:
         cfg = load_user_config()
         return self.set_matrix_brightness(cfg.get("ledBrightnessPrev", DEFAULT_SETTINGS["ledBrightness"]))
 
-    def led_matrix_from_image(self, data_url, max_frames=260):
+    def led_matrix_from_image(self, data_url, max_frames=260, boost=False):
         """Downscale an image/GIF to 5x63 frames for the editor."""
         try:
             im = Image.open(io.BytesIO(decode_data_url(data_url)))
@@ -1116,6 +1127,8 @@ class KeyboardController:
                 if len(frames) >= max_frames:
                     break
                 small = ImageOps.fit(frame.convert("RGB"), (LED_COLS, LED_ROWS), method=Image.Resampling.BOX)
+                if boost:
+                    small = boost_led_frame(small)
                 frames.append(["#%02x%02x%02x" % px for px in small.getdata()])
                 delays.append(frame.info.get("duration", 100) or 100)
             return {"success": True, "frames": frames, "delays": delays}
@@ -1526,7 +1539,7 @@ class AppHandler(http.server.SimpleHTTPRequestHandler):
             self.wfile.write(json.dumps(res).encode("utf-8"))
             return
         elif self.path == "/api/led-matrix/import":
-            res = controller.led_matrix_from_image(data.get("image", ""))
+            res = controller.led_matrix_from_image(data.get("image", ""), boost=bool(data.get("boost")))
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()

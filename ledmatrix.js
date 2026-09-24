@@ -192,7 +192,7 @@ export class LedMatrixEditor {
       reader.readAsDataURL(file);
     });
     try {
-      const res = await this.driver.ledMatrixImport(dataUrl);
+      const res = await this.driver.ledMatrixImport(dataUrl, document.getElementById("ledBoost").checked);
       this.frames = res.frames;
       this.current = 0;
       this.render();
