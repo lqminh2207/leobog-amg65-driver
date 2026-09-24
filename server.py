@@ -12,6 +12,7 @@ import ctypes
 import ctypes.util
 import subprocess
 import threading
+import colorsys
 import re
 import secrets
 import hmac
@@ -195,6 +196,47 @@ def matrix_speed_word(level):
     return round(SLOWEST_FRAME_WORD * ratio ** ((level - 1) / 99))
 
 
+AUDIOTAP_PATH = os.path.join(DIRECTORY, "audiotap")
+MUSIC_INTERVAL = 0.03
+# cyan -> violet -> pink across the 63 bands, like the app icon
+MUSIC_COLORS = ["#%02x%02x%02x" % tuple(round(c * 255) for c in colorsys.hls_to_rgb(0.5 + 0.45 * i / (LED_COLS - 1), 0.5, 1.0))
+                for i in range(LED_COLS)]
+
+
+class AudioBands:
+    """Runs the audiotap helper (system-audio tap + FFT) and keeps its latest 63 band levels."""
+
+    def __init__(self):
+        self.levels = [0.0] * LED_COLS
+        self.error = None
+        self.proc = None
+        self.stopped = False
+
+    def start(self):
+        if not os.path.exists(AUDIOTAP_PATH):
+            raise RuntimeError("Chua build audiotap, hay chay ./build_app.sh")
+        self.proc = subprocess.Popen([AUDIOTAP_PATH], stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                     text=True, bufsize=1)
+        threading.Thread(target=self.read_loop, daemon=True).start()
+
+    def read_loop(self):
+        for line in self.proc.stdout:
+            if line.startswith("ERR"):
+                self.error = line[4:].strip()
+                continue
+            parts = line.split()
+            if len(parts) == LED_COLS:
+                self.levels = [float(v) for v in parts]
+                self.error = None
+        if not self.stopped:
+            self.error = self.error or "Trinh doc am thanh da dung"
+
+    def stop(self):
+        self.stopped = True
+        if self.proc and self.proc.poll() is None:
+            self.proc.terminate()
+
+
 def blank_frame():
     return ["#000000"] * (LED_ROWS * LED_COLS)
 
@@ -249,7 +291,7 @@ def draw_badges(frame, badges):
 class LiveLedWorker(threading.Thread):
     """Renders a live layer on the Mac and pushes one 04 35 frame per second."""
 
-    MODES = ("cpu", "gpu", "ram", "net", "clock", "notify")
+    MODES = ("cpu", "gpu", "ram", "net", "clock", "notify", "music")
 
     def __init__(self, controller, mode):
         super().__init__(daemon=True)
@@ -262,6 +304,10 @@ class LiveLedWorker(threading.Thread):
         self.prev_badges = None
         self.flash_ticks = 0
         self.error = None
+        self.audio = None
+        if mode == "music":
+            self.audio = AudioBands()
+            self.audio.start()
 
     def cpu_percent(self):
         now = cpu_ticks()
@@ -276,6 +322,10 @@ class LiveLedWorker(threading.Thread):
         frame = blank_frame()
         if self.mode == "cpu":
             draw_bar(frame, self.cpu_percent(), range(LED_ROWS))
+        elif self.mode == "music":
+            for col, level in enumerate(self.audio.levels):
+                for r in range(round(level * LED_ROWS)):
+                    frame[(LED_ROWS - 1 - r) * LED_COLS + col] = MUSIC_COLORS[col]
         elif self.mode == "gpu":
             draw_bar(frame, gpu_percent(), range(LED_ROWS))
         elif self.mode == "ram":
@@ -302,7 +352,39 @@ class LiveLedWorker(threading.Thread):
             draw_text(frame, now.strftime("%H:%M" if now.second % 2 else "%H %M"), "#00f0ff")
         return frame
 
+    def run_music(self):
+        h = None
+        try:
+            while not self.stop_event.is_set():
+                if self.controller.reminding:
+                    self.stop_event.wait(0.5)
+                    continue
+                try:
+                    if h is None:
+                        path = self.controller.find_device_path()
+                        if not path:
+                            raise RuntimeError("Ban phim chua duoc cam")
+                        h = hid.device()
+                        h.open_path(path)
+                    buf = build_matrix_frame(self.render())
+                    with DEVICE_LOCK:
+                        send_matrix_frame(h, buf, log=False, drain=False)
+                    self.error = self.audio.error
+                except Exception as e:
+                    self.error = str(e)
+                    if h:
+                        h.close()
+                        h = None
+                    self.stop_event.wait(1.0)
+                self.stop_event.wait(MUSIC_INTERVAL)
+        finally:
+            if h:
+                h.close()
+            self.audio.stop()
+
     def run(self):
+        if self.mode == "music":
+            return self.run_music()
         while not self.stop_event.is_set():
             if self.controller.reminding:
                 self.stop_event.wait(0.5)
@@ -649,16 +731,43 @@ def ack_ok(resp):
     return bool(resp) and len(resp) > 3 and resp[3] == 0x01
 
 
-def send_cmd(h, pkt, tag="cmd"):
+def send_cmd(h, pkt, tag="cmd", log=True):
     full = [0x00] + list(pkt) + [0x00] * (64 - len(pkt))
     for _ in range(2):  # retry once when the device reports busy
         h.write(bytes(full[:65]))
         time.sleep(0.002)
         resp = h.read(64, timeout_ms=200)
-        print(f"[{tag}] {bytes(pkt[:10]).hex(' ')} -> {bytes(resp[:8]).hex(' ') if resp else 'no reply'}")
+        if log:
+            print(f"[{tag}] {bytes(pkt[:10]).hex(' ')} -> {bytes(resp[:8]).hex(' ') if resp else 'no reply'}")
         if not (resp and len(resp) > 3 and resp[3] == 0xFF):
             break
     return resp
+
+
+def build_matrix_frame(pixels):
+    """315 colours, row-major 5x63 -> the 1024-byte 04 35 buffer in device LED order."""
+    buf = bytearray(1024)
+    for row in range(LED_ROWS):
+        for col in range(LED_COLS):
+            dev = led_device_index(row, col)
+            buf[dev * 3:dev * 3 + 3] = bytes(parse_rgb(pixels[row * LED_COLS + col]))
+    buf[946] = 0xAA
+    buf[947] = 0x55
+    return buf
+
+
+def send_matrix_frame(h, buf, log=True, drain=True):
+    if not ack_ok(send_cmd(h, [0x04, 0x18], "led", log)):
+        raise RuntimeError("Ban phim khong vao che do cau hinh (04 18)")
+    if not ack_ok(send_cmd(h, [0x04, 0x35, 0, 0, 0, 0, 0, 0, 0x0F], "led", log)):
+        raise RuntimeError("Ban phim tu choi lenh hien thi LED (04 35)")
+    if drain:  # each empty drain read costs its full timeout
+        for _ in range(2):
+            h.read(64, timeout_ms=10)
+    for i in range(16):
+        h.write(bytes([0x00]) + bytes(buf[i * 64:(i + 1) * 64]))
+        h.read(64, timeout_ms=500)
+    send_cmd(h, [0x04, 0x02], "led", log)
 
 
 def pad_blocks(payload):
@@ -1032,28 +1141,12 @@ class KeyboardController:
         if len(pixels) != LED_COUNT:
             return {"success": False, "error": f"Can {LED_COUNT} diem anh"}
 
-        buf = bytearray(1024)
-        for row in range(LED_ROWS):
-            for col in range(LED_COLS):
-                dev = led_device_index(row, col)
-                buf[dev * 3:dev * 3 + 3] = bytes(parse_rgb(pixels[row * LED_COLS + col]))
-        buf[946] = 0xAA
-        buf[947] = 0x55
-
+        buf = build_matrix_frame(pixels)
         h = hid.device()
         DEVICE_LOCK.acquire()
         try:
             h.open_path(path)
-            if not ack_ok(send_cmd(h, [0x04, 0x18], "led")):
-                raise RuntimeError("Ban phim khong vao che do cau hinh (04 18)")
-            if not ack_ok(send_cmd(h, [0x04, 0x35, 0, 0, 0, 0, 0, 0, 0x0F], "led")):
-                raise RuntimeError("Ban phim tu choi lenh hien thi LED (04 35)")
-            for _ in range(2):
-                h.read(64, timeout_ms=10)
-            for i in range(16):
-                h.write(bytes([0x00]) + bytes(buf[i * 64:(i + 1) * 64]))
-                h.read(64, timeout_ms=500)
-            send_cmd(h, [0x04, 0x02], "led")
+            send_matrix_frame(h, buf)
             return {"success": True}
         except Exception as e:
             return {"success": False, "error": str(e)}

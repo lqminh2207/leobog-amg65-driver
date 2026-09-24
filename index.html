@@ -450,7 +450,9 @@
             Mac sẽ vẽ và gửi liên tục mỗi giây lên màn LED. Chỉ chạy khi app đang mở và phím cắm dây;
             hiệu ứng đã nạp trong phím sẽ hiện lại khi bạn tắt lớp này.<br>
             Lớp "Thông báo ứng dụng" đọc badge trên Dock nên cần cấp quyền <strong>Trợ năng (Accessibility)</strong>
-            cho ứng dụng đang chạy server; app có số thì hiện số, app chỉ có chấm thì hiện vạch màu.
+            cho ứng dụng đang chạy server; app có số thì hiện số, app chỉ có chấm thì hiện vạch màu.<br>
+            Lớp "Nhảy theo nhạc" nghe âm thanh đang phát (Spotify, YouTube…); lần đầu macOS sẽ hỏi quyền
+            <strong>Ghi âm thanh hệ thống</strong>. Không dùng micro, không ghi lại gì.
           </p>
           <select class="mode-select" id="ledLiveMode">
             <option value="off">Tắt (dùng hiệu ứng lưu trong phím)</option>
@@ -459,6 +461,7 @@
             <option value="ram">Bộ nhớ RAM đang dùng (%)</option>
             <option value="net">Tốc độ mạng (xuống / lên)</option>
             <option value="clock">Đồng hồ giờ:phút</option>
+            <option value="music">Nhảy theo nhạc (âm thanh đang phát trên Mac)</option>
             <option value="notify">Thông báo ứng dụng (Slack, Mail...)</option>
           </select>
           <div class="led-status" id="ledLiveStatus"></div>
