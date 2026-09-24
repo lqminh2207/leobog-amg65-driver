@@ -956,3 +956,9 @@ input[type="range"]::-webkit-slider-thumb:hover {
   border-color: var(--accent-red);
   color: var(--accent-red);
 }
+
+.brand-logo {
+  width: 40px;
+  height: 40px;
+  margin: -4px -2px -4px -6px;
+}

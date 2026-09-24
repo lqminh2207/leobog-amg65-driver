@@ -18,6 +18,7 @@ clang -dynamiclib -arch arm64 -arch x86_64 -o libusbflash.dylib usb_flash_bridge
 pyinstaller --noconfirm --clean --windowed \
   --name "LEOBOG AMG65 Studio" \
   --osx-bundle-identifier com.leobog.amg65.studio \
+  --icon assets/AppIcon.icns \
   --add-data "index.html:." \
   --add-data "app.js:." \
   --add-data "driver.js:." \
