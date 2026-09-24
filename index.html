@@ -387,7 +387,8 @@
             </svg>
             Vẽ Hiệu Ứng Cho Màn LED Ma Trận (5 × 63 RGB)
           </div>
-          <p class="led-hint">Bấm hoặc kéo chuột để vẽ, chuột phải để tẩy. Có thể nhập ảnh / GIF, tự động thu nhỏ về 63×5 điểm.</p>
+          <p class="led-hint">Bấm hoặc kéo chuột để vẽ, chuột phải để tẩy. Có thể nhập ảnh / GIF (tự thu nhỏ về 63×5 điểm)
+            hoặc file JSON hoạt ảnh màn LED của AM RGB 65.</p>
 
           <div class="led-canvas-wrap">
             <canvas id="ledCanvas" class="led-canvas"></canvas>
@@ -402,11 +403,22 @@
               <button class="btn btn-secondary" id="ledFill">Tô cả khung</button>
               <button class="btn btn-secondary" id="ledClear">Xoá khung</button>
             </div>
-            <input type="file" id="ledFileInput" accept="image/gif,image/png,image/jpeg,image/webp" hidden>
-            <button class="btn btn-secondary" id="ledImport">Nhập Ảnh / GIF</button>
+            <input type="file" id="ledFileInput" accept="image/gif,image/png,image/jpeg,image/webp,application/json,.json" hidden>
+            <button class="btn btn-secondary" id="ledImport">Nhập Ảnh / GIF / JSON</button>
             <label class="setting-item" title="Kéo điểm sáng nhất lên tối đa, tăng độ rực màu, tắt hẳn các điểm gần đen">
               <input type="checkbox" id="ledBoost" checked> Tăng sáng &amp; độ rực khi nhập
             </label>
+          </div>
+
+          <div class="led-toolbar" id="ledJsonPicker" style="display: none;">
+            <span class="led-hint" id="ledJsonHint"></span>
+            <select class="mode-select combo-key" id="ledJsonPage"></select>
+            <select class="mode-select combo-key" id="ledJsonFit">
+              <option value="center">Căn giữa (giữ nét)</option>
+              <option value="stretch">Kéo giãn đầy màn</option>
+            </select>
+            <button class="btn btn-primary" id="ledJsonApply">Nhập</button>
+            <button class="btn btn-secondary" id="ledJsonCancel">Huỷ</button>
           </div>
 
           <div class="led-frames">

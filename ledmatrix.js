@@ -7,6 +7,35 @@ const PALETTE = ["#00f0ff", "#ff007f", "#a855f7", "#10b981", "#fbbf24", "#3b82f6
 const MAX_FRAMES = { animation: 260, boot: 200 };
 
 const blankFrame = () => new Array(ROWS * COLS).fill(OFF);
+const HEX = /^#[0-9a-fA-F]{6}/;
+
+// Fit a src-width x 5 row-major frame onto the 63-wide panel: centred (crisp) or stretched
+function fitFrame(pixels, srcWidth, mode) {
+  const frame = blankFrame();
+  const offset = Math.floor((COLS - srcWidth) / 2);
+  for (let row = 0; row < ROWS; row++) {
+    for (let col = 0; col < COLS; col++) {
+      const src = mode === "stretch" ? Math.floor((col * srcWidth) / COLS) : col - offset;
+      if (src < 0 || src >= srcWidth) continue;
+      const color = pixels[row * srcWidth + src];
+      if (typeof color === "string" && HEX.test(color)) frame[row * COLS + col] = color.slice(0, 7).toLowerCase();
+    }
+  }
+  return frame;
+}
+
+// Animation pages of an Angry Miao "AM RGB 65" style export (product_id RGB_65): 5 rows, row-major
+function jsonPages(doc) {
+  if (!doc || !Array.isArray(doc.page_data)) return [];
+  return doc.page_data
+    .filter(p => p && p.frames && p.frames.valid && Array.isArray(p.frames.frame_data) && p.frames.frame_data.length)
+    .map(p => {
+      const data = [...p.frames.frame_data].sort((a, b) => (a.frame_index || 0) - (b.frame_index || 0));
+      const width = Math.round((data[0].frame_RGB || []).length / ROWS);
+      return { index: p.page_index, speedMs: p.speed_ms, width, frames: data.map(f => f.frame_RGB || []) };
+    })
+    .filter(p => p.width > 0 && p.width <= COLS);
+}
 
 export class LedMatrixEditor {
   constructor(app) {
@@ -102,6 +131,8 @@ export class LedMatrixEditor {
     $("ledPlay").addEventListener("click", () => (this.playTimer ? this.stop() : this.play()));
 
     $("ledImport").addEventListener("click", () => $("ledFileInput").click());
+    $("ledJsonApply").addEventListener("click", () => this.applyJsonPage());
+    $("ledJsonCancel").addEventListener("click", () => { $("ledJsonPicker").style.display = "none"; });
     $("ledFileInput").addEventListener("change", e => this.importFile(e.target.files[0]));
 
     const speed = $("ledSpeed");
@@ -216,6 +247,9 @@ export class LedMatrixEditor {
 
   async importFile(file) {
     if (!file) return;
+    if (file.name.toLowerCase().endsWith(".json") || file.type === "application/json") {
+      return this.importJson(file);
+    }
     const dataUrl = await new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.onload = () => resolve(reader.result);
@@ -232,6 +266,42 @@ export class LedMatrixEditor {
       this.app.showToast("Lỗi: " + err.message, "error");
     }
     document.getElementById("ledFileInput").value = "";
+  }
+
+  async importJson(file) {
+    const input = document.getElementById("ledFileInput");
+    input.value = "";
+    let pages;
+    try {
+      pages = jsonPages(JSON.parse(await file.text()));
+    } catch (err) {
+      this.app.showToast("File JSON không đọc được: " + err.message, "error");
+      return;
+    }
+    if (!pages.length) {
+      this.app.showToast("Không tìm thấy hoạt ảnh màn LED nào trong file này.", "error");
+      return;
+    }
+    this.jsonPages = pages;
+    this.jsonName = file.name;
+    const select = document.getElementById("ledJsonPage");
+    select.replaceChildren(...pages.map((p, i) =>
+      new Option(`Trang ${p.index} — ${p.frames.length} khung (${p.width}×${ROWS})`, String(i))));
+    document.getElementById("ledJsonPicker").style.display = "";
+    document.getElementById("ledJsonHint").textContent =
+      `${file.name}: ${pages.length} trang hoạt ảnh. Chọn trang và cách đặt hình rồi bấm Nhập.`;
+  }
+
+  applyJsonPage() {
+    const page = this.jsonPages[Number(document.getElementById("ledJsonPage").value)];
+    const mode = document.getElementById("ledJsonFit").value;
+    this.stop();
+    this.frames = page.frames.slice(0, MAX_FRAMES.animation).map(f => fitFrame(f, page.width, mode));
+    this.current = 0;
+    this.previewMs = page.speedMs > 0 ? page.speedMs : null;
+    this.render();
+    document.getElementById("ledJsonPicker").style.display = "none";
+    this.app.showToast(`Đã nhập ${this.frames.length} khung từ trang ${page.index} của ${this.jsonName}`, "success");
   }
 
   setTool(tool) {
@@ -272,7 +342,7 @@ export class LedMatrixEditor {
   play() {
     if (this.frames.length < 2) return;
     document.getElementById("ledPlay").textContent = "■ Dừng";
-    this.playTimer = setInterval(() => this.goto(this.current + 1), 100);
+    this.playTimer = setInterval(() => this.goto(this.current + 1), this.previewMs || 100);
   }
 
   stop() {
