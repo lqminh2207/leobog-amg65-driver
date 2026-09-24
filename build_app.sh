@@ -1,7 +1,16 @@
 #!/bin/bash
-# Builds "LEOBOG AMG65 Studio.app" into dist/. Requires: pip install -r requirements.txt pyinstaller
+# Builds "LEOBOG AMG65 Studio.app" into dist/, creating .venv-build/ on first run
 set -e
 cd "$(dirname "$0")"
+
+# Build env lives next to the repo; Homebrew's framework Python works with PyInstaller
+if [ ! -x .venv-build/bin/pyinstaller ]; then
+  PYTHON="${PYTHON:-$(command -v python3.11 || command -v python3)}"
+  "$PYTHON" -m venv .venv-build
+  .venv-build/bin/pip install -q --upgrade pip
+  .venv-build/bin/pip install -q -r requirements.txt pyinstaller
+fi
+export PATH="$PWD/.venv-build/bin:$PATH"
 
 clang -dynamiclib -arch arm64 -arch x86_64 -o libusbflash.dylib usb_flash_bridge.c \
   -framework IOKit -framework CoreFoundation
