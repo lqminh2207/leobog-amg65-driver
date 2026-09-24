@@ -24,6 +24,23 @@ function fitFrame(pixels, srcWidth, mode) {
   return frame;
 }
 
+const THUMB_CELL = 5;
+
+function drawThumb(canvas, frame) {
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "#05070a";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  for (let row = 0; row < ROWS; row++) {
+    for (let col = 0; col < COLS; col++) {
+      const color = frame[row * COLS + col];
+      ctx.fillStyle = color === OFF ? "#161b24" : color;
+      ctx.beginPath();
+      ctx.arc(col * THUMB_CELL + THUMB_CELL / 2, row * THUMB_CELL + THUMB_CELL / 2, THUMB_CELL / 2 - 0.6, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+}
+
 // Animation pages of an Angry Miao "AM RGB 65" style export (product_id RGB_65): 5 rows, row-major
 function jsonPages(doc) {
   if (!doc || !Array.isArray(doc.page_data)) return [];
@@ -132,7 +149,10 @@ export class LedMatrixEditor {
 
     $("ledImport").addEventListener("click", () => $("ledFileInput").click());
     $("ledJsonApply").addEventListener("click", () => this.applyJsonPage());
-    $("ledJsonCancel").addEventListener("click", () => { $("ledJsonPicker").style.display = "none"; });
+    $("ledJsonCancel").addEventListener("click", () => {
+      this.stopJsonPreview();
+      $("ledJsonPicker").style.display = "none";
+    });
     $("ledFileInput").addEventListener("change", e => this.importFile(e.target.files[0]));
 
     const speed = $("ledSpeed");
@@ -284,22 +304,65 @@ export class LedMatrixEditor {
     }
     this.jsonPages = pages;
     this.jsonName = file.name;
-    const select = document.getElementById("ledJsonPage");
-    select.replaceChildren(...pages.map((p, i) =>
-      new Option(`Trang ${p.index} — ${p.frames.length} khung (${p.width}×${ROWS})`, String(i))));
+    this.jsonSelected = 0;
+    const cards = pages.map((p, i) => {
+      const card = document.createElement("div");
+      card.className = "json-page";
+      const canvas = document.createElement("canvas");
+      canvas.width = COLS * THUMB_CELL;
+      canvas.height = ROWS * THUMB_CELL;
+      const label = document.createElement("span");
+      label.textContent = `Trang ${p.index} — ${p.frames.length} khung, ${p.speedMs || 100} ms/khung`;
+      card.append(canvas, label);
+      card.addEventListener("click", () => this.selectJsonPage(i));
+      p.canvas = canvas;
+      return card;
+    });
+    document.getElementById("ledJsonPages").replaceChildren(...cards);
     document.getElementById("ledJsonPicker").style.display = "";
     document.getElementById("ledJsonHint").textContent =
-      `${file.name}: ${pages.length} trang hoạt ảnh. Chọn trang và cách đặt hình rồi bấm Nhập.`;
+      `${file.name}: ${pages.length} trang hoạt ảnh. Bấm vào trang muốn nhập, chọn cách đặt hình rồi bấm Nhập.`;
+    this.selectJsonPage(0);
+    this.startJsonPreview();
+  }
+
+  selectJsonPage(index) {
+    this.jsonSelected = index;
+    document.querySelectorAll("#ledJsonPages .json-page").forEach((card, i) => {
+      card.classList.toggle("selected", i === index);
+    });
+  }
+
+  // Each thumbnail loops its page at the page's own speed, drawn with the chosen fit
+  startJsonPreview() {
+    this.stopJsonPreview();
+    const started = performance.now();
+    const tick = now => {
+      const mode = document.getElementById("ledJsonFit").value;
+      this.jsonPages.forEach(p => {
+        // rAF's timestamp can predate `started` on the first frame
+        const index = Math.floor(Math.max(0, now - started) / (p.speedMs || 100)) % p.frames.length;
+        drawThumb(p.canvas, fitFrame(p.frames[index], p.width, mode));
+      });
+      this.jsonAnim = requestAnimationFrame(tick);
+    };
+    this.jsonAnim = requestAnimationFrame(tick);
+  }
+
+  stopJsonPreview() {
+    if (this.jsonAnim) cancelAnimationFrame(this.jsonAnim);
+    this.jsonAnim = null;
   }
 
   applyJsonPage() {
-    const page = this.jsonPages[Number(document.getElementById("ledJsonPage").value)];
+    const page = this.jsonPages[this.jsonSelected];
     const mode = document.getElementById("ledJsonFit").value;
     this.stop();
     this.frames = page.frames.slice(0, MAX_FRAMES.animation).map(f => fitFrame(f, page.width, mode));
     this.current = 0;
     this.previewMs = page.speedMs > 0 ? page.speedMs : null;
     this.render();
+    this.stopJsonPreview();
     document.getElementById("ledJsonPicker").style.display = "none";
     this.app.showToast(`Đã nhập ${this.frames.length} khung từ trang ${page.index} của ${this.jsonName}`, "success");
   }

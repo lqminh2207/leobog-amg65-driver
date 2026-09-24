@@ -410,15 +410,17 @@
             </label>
           </div>
 
-          <div class="led-toolbar" id="ledJsonPicker" style="display: none;">
+          <div class="json-picker" id="ledJsonPicker" style="display: none;">
             <span class="led-hint" id="ledJsonHint"></span>
-            <select class="mode-select combo-key" id="ledJsonPage"></select>
-            <select class="mode-select combo-key" id="ledJsonFit">
-              <option value="center">Căn giữa (giữ nét)</option>
-              <option value="stretch">Kéo giãn đầy màn</option>
-            </select>
-            <button class="btn btn-primary" id="ledJsonApply">Nhập</button>
-            <button class="btn btn-secondary" id="ledJsonCancel">Huỷ</button>
+            <div class="json-pages" id="ledJsonPages"></div>
+            <div class="led-toolbar">
+              <select class="mode-select combo-key" id="ledJsonFit">
+                <option value="center">Căn giữa (giữ nét)</option>
+                <option value="stretch">Kéo giãn đầy màn</option>
+              </select>
+              <button class="btn btn-primary" id="ledJsonApply">Nhập trang đã chọn</button>
+              <button class="btn btn-secondary" id="ledJsonCancel">Huỷ</button>
+            </div>
           </div>
 
           <div class="led-frames">
