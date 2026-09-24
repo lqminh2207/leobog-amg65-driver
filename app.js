@@ -437,8 +437,9 @@ class AppUI {
     set("setFnToggle", settings.fnToggle);
     if (settings.sleepLight !== undefined) document.getElementById("setSleepLight").value = settings.sleepLight;
     if (settings.ledBrightness !== undefined) {
-      document.getElementById("setLedBrightness").value = settings.ledBrightness;
-      document.getElementById("setBrightnessVal").textContent = settings.ledBrightness;
+      const level = Math.min(7, settings.ledBrightness);
+      document.getElementById("setLedBrightness").value = level;
+      document.getElementById("setBrightnessVal").textContent = level;
     }
   }
 

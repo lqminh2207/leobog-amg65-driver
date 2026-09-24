@@ -309,6 +309,9 @@ KEY_INDEXES = [
 ]
 REMAP_SLOTS = 128
 
+# Firmware range confirmed on hardware: 7 is brightest, 8+ wraps to dim
+MAX_LED_BRIGHTNESS = 7
+
 DEFAULT_SETTINGS = {
     "gameMode": 0, "disableAltTab": 0, "disableAltF4": 0, "disableWin": 0,
     "fnToggle": 0, "sleepLight": 1, "ledBrightness": 7,
@@ -504,7 +507,10 @@ def validate_profile(profile):
         settings = profile["settings"]
         if not isinstance(settings, dict):
             raise ValueError("cai dat khong hop le")
+        # profiles saved before the 0-7 limit was known may hold up to 10
         out["settings"] = {k: checked_int(v, 0, 10, k) for k, v in settings.items() if k in DEFAULT_SETTINGS}
+        if "ledBrightness" in out["settings"]:
+            out["settings"]["ledBrightness"] = min(out["settings"]["ledBrightness"], MAX_LED_BRIGHTNESS)
     if "macros" in profile:
         out["macros"] = validate_macros(profile["macros"])
     if "tftSlot" in profile:
@@ -1084,7 +1090,7 @@ class KeyboardController:
 
     def set_matrix_brightness(self, value):
         """The keyboard has no matrix off command, so off = 04 17 brightness 0."""
-        value = max(0, min(10, int(value)))
+        value = max(0, min(MAX_LED_BRIGHTNESS, int(value)))
         cfg = load_user_config()
         current = int(cfg["settings"].get("ledBrightness", DEFAULT_SETTINGS["ledBrightness"]))
         if value == 0:
@@ -1321,7 +1327,7 @@ class KeyboardController:
         pkt[4] = 1 if merged["disableWin"] else 0
         pkt[5] = 1 if merged["fnToggle"] else 0
         pkt[6] = max(0, min(3, merged["sleepLight"]))
-        pkt[7] = max(0, min(10, merged["ledBrightness"]))
+        pkt[7] = max(0, min(MAX_LED_BRIGHTNESS, merged["ledBrightness"]))
         pkt[62] = 0xAA
         pkt[63] = 0x55
 
