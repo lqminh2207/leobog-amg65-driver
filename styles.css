@@ -962,3 +962,44 @@ input[type="range"]::-webkit-slider-thumb:hover {
   height: 40px;
   margin: -4px -2px -4px -6px;
 }
+
+/* JSON page picker with animated thumbnails */
+.json-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--surface-glass-border);
+  border-radius: var(--radius-md);
+  background: rgba(0, 0, 0, 0.25);
+}
+
+.json-pages {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.json-page {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  border: 2px solid transparent;
+  border-radius: var(--radius-sm);
+  background: #05070a;
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.json-page.selected {
+  border-color: var(--accent-cyan);
+  color: var(--accent-cyan);
+}
+
+.json-page canvas {
+  display: block;
+  width: 315px;
+  height: 25px;
+}
